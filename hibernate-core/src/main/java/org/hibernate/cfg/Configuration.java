@@ -53,6 +53,7 @@ import java.util.jar.JarFile;
 import java.util.zip.ZipEntry;
 
 import javax.persistence.AttributeConverter;
+import javax.persistence.Converter;
 import javax.persistence.Embeddable;
 import javax.persistence.Entity;
 import javax.persistence.MapsId;
@@ -405,6 +406,17 @@ public class Configuration implements Serializable {
 	}
 
 	/**
+	 * Get a copy of all known MappedSuperclasses
+	 * <p/>
+	 * EXPERIMENTAL Consider this API as PRIVATE
+	 *
+	 * @return Set of all known MappedSuperclasses
+	 */
+	public java.util.Set<MappedSuperclass> getMappedSuperclassMappingsCopy() {
+		return new HashSet<MappedSuperclass>( mappedSuperClasses.values() );
+	}
+
+	/**
 	 * Get the mapping for a particular entity
 	 *
 	 * @param entityName An entity name.
@@ -521,6 +533,7 @@ public class Configuration implements Serializable {
 					throw new AnnotationException( "Unable to load class defined in XML: " + className, e );
 				}
 			}
+			jpaMetadataProvider.getXMLContext().applyDiscoveredAttributeConverters( this );
 		}
 	}
 
@@ -1092,9 +1105,17 @@ public class Configuration implements Serializable {
 								)
 						);
 				}
+			}
+		}
+
+		// Foreign keys must be created *after* unique keys for numerous DBs.  See HH-8390.
+		iter = getTableMappings();
+		while ( iter.hasNext() ) {
+			Table table = (Table) iter.next();
+			if ( table.isPhysicalTable() ) {
 
 				if ( dialect.hasAlterTable() ) {
-					subIter = table.getForeignKeyIterator();
+					Iterator subIter = table.getForeignKeyIterator();
 					while ( subIter.hasNext() ) {
 						ForeignKey fk = (ForeignKey) subIter.next();
 						if ( fk.isPhysicalConstraint() ) {
@@ -1225,26 +1246,10 @@ public class Configuration implements Serializable {
 						String constraintString = uniqueKey.sqlCreateString( dialect, mapping, tableCatalog, tableSchema );
 						if ( constraintString != null && !constraintString.isEmpty() )
 							if ( constraintMethod.equals( UniqueConstraintSchemaUpdateStrategy.DROP_RECREATE_QUIETLY ) ) {
-								String constraintDropString = uniqueKey.sqlDropString( dialect, tableCatalog, tableCatalog );
+								String constraintDropString = uniqueKey.sqlDropString( dialect, tableCatalog, tableSchema );
 								scripts.add( new SchemaUpdateScript( constraintDropString, true) );
 							}
 							scripts.add( new SchemaUpdateScript( constraintString, true) );
-					}
-				}
-
-				if ( dialect.hasAlterTable() ) {
-					Iterator subIter = table.getForeignKeyIterator();
-					while ( subIter.hasNext() ) {
-						ForeignKey fk = (ForeignKey) subIter.next();
-						if ( fk.isPhysicalConstraint() ) {
-							boolean create = tableInfo == null || ( tableInfo.getForeignKeyMetadata( fk ) == null && (
-							// Icky workaround for MySQL bug:
-									!( dialect instanceof MySQLDialect ) || tableInfo.getIndexMetadata( fk.getName() ) == null ) );
-							if ( create ) {
-								scripts.add( new SchemaUpdateScript( fk.sqlCreateString( dialect, mapping,
-										tableCatalog, tableSchema ), false ) );
-							}
-						}
 					}
 				}
 
@@ -1260,6 +1265,35 @@ public class Configuration implements Serializable {
 					}
 					scripts.add( new SchemaUpdateScript( index.sqlCreateString( dialect, mapping, tableCatalog,
 							tableSchema ), false ) );
+				}
+			}
+		}
+
+		// Foreign keys must be created *after* unique keys for numerous DBs.  See HH-8390.
+		iter = getTableMappings();
+		while ( iter.hasNext() ) {
+			Table table = (Table) iter.next();
+			String tableSchema = ( table.getSchema() == null ) ? defaultSchema : table.getSchema();
+			String tableCatalog = ( table.getCatalog() == null ) ? defaultCatalog : table.getCatalog();
+			if ( table.isPhysicalTable() ) {
+
+				TableMetadata tableInfo = databaseMetadata.getTableMetadata( table.getName(), tableSchema,
+						tableCatalog, table.isQuoted() );
+
+				if ( dialect.hasAlterTable() ) {
+					Iterator subIter = table.getForeignKeyIterator();
+					while ( subIter.hasNext() ) {
+						ForeignKey fk = (ForeignKey) subIter.next();
+						if ( fk.isPhysicalConstraint() ) {
+							boolean create = tableInfo == null || ( tableInfo.getForeignKeyMetadata( fk ) == null && (
+							// Icky workaround for MySQL bug:
+									!( dialect instanceof MySQLDialect ) || tableInfo.getIndexMetadata( fk.getName() ) == null ) );
+							if ( create ) {
+								scripts.add( new SchemaUpdateScript( fk.sqlCreateString( dialect, mapping,
+										tableCatalog, tableSchema ), false ) );
+							}
+						}
+					}
 				}
 			}
 		}
@@ -1308,6 +1342,9 @@ public class Configuration implements Serializable {
 		while ( iter.hasNext() ) {
 			PersistentIdentifierGenerator generator = (PersistentIdentifierGenerator) iter.next();
 			Object key = generator.generatorKey();
+			if (key instanceof String) {
+				key = normalizer.normalizeIdentifierQuoting( (String) key );
+			}
 			if ( !databaseMetadata.isSequence( key ) && !databaseMetadata.isTable( key ) ) {
 				throw new HibernateException( "Missing sequence or table: " + key );
 			}
@@ -1590,7 +1627,11 @@ public class Configuration implements Serializable {
 				//column equals and hashcode is based on column name
 			}
 			catch ( MappingException e ) {
-				unboundNoLogical.add( new Column( column ) );
+				// If at least 1 columnName does exist, 'columns' will contain a mix of Columns and nulls.  In order
+				// to exhaustively report all of the unbound columns at once, w/o an NPE in
+				// Constraint#generateName's array sorting, simply create a fake Column.
+				columns[index] = new Column( column );
+				unboundNoLogical.add( columns[index] );
 			}
 		}
 		
@@ -2600,6 +2641,42 @@ public class Configuration implements Serializable {
 	}
 
 	/**
+	 * Adds the AttributeConverter Class to this Configuration.
+	 *
+	 * @param attributeConverterClass The AttributeConverter class.
+	 */
+	public void addAttributeConverter(Class<? extends AttributeConverter> attributeConverterClass) {
+		final AttributeConverter attributeConverter;
+		try {
+			attributeConverter = attributeConverterClass.newInstance();
+		}
+		catch (Exception e) {
+			throw new AnnotationException(
+					"Unable to instantiate AttributeConverter [" + attributeConverterClass.getName() + "]"
+			);
+		}
+
+		addAttributeConverter( attributeConverter );
+	}
+
+	/**
+	 * Adds the AttributeConverter instance to this Configuration.  This form is mainly intended for developers
+	 * to programatically add their own AttributeConverter instance.  HEM, instead, uses the
+	 * {@link #addAttributeConverter(Class, boolean)} form
+	 *
+	 * @param attributeConverter The AttributeConverter instance.
+	 */
+	public void addAttributeConverter(AttributeConverter attributeConverter) {
+		boolean autoApply = false;
+		Converter converterAnnotation = attributeConverter.getClass().getAnnotation( Converter.class );
+		if ( converterAnnotation != null ) {
+			autoApply = converterAnnotation.autoApply();
+		}
+
+		addAttributeConverter( new AttributeConverterDefinition( attributeConverter, autoApply ) );
+	}
+
+	/**
 	 * Adds the AttributeConverter instance to this Configuration.  This form is mainly intended for developers
 	 * to programatically add their own AttributeConverter instance.  HEM, instead, uses the
 	 * {@link #addAttributeConverter(Class, boolean)} form
@@ -2609,18 +2686,22 @@ public class Configuration implements Serializable {
 	 * by its "entity attribute" parameterized type?
 	 */
 	public void addAttributeConverter(AttributeConverter attributeConverter, boolean autoApply) {
+		addAttributeConverter( new AttributeConverterDefinition( attributeConverter, autoApply ) );
+	}
+
+	public void addAttributeConverter(AttributeConverterDefinition definition) {
 		if ( attributeConverterDefinitionsByClass == null ) {
 			attributeConverterDefinitionsByClass = new ConcurrentHashMap<Class, AttributeConverterDefinition>();
 		}
 
-		final Object old = attributeConverterDefinitionsByClass.put(
-				attributeConverter.getClass(),
-				new AttributeConverterDefinition( attributeConverter, autoApply )
-		);
+		final Object old = attributeConverterDefinitionsByClass.put( definition.getAttributeConverter().getClass(), definition );
 
 		if ( old != null ) {
 			throw new AssertionFailure(
-					"AttributeConverter class [" + attributeConverter.getClass() + "] registered multiple times"
+					String.format(
+							"AttributeConverter class [%s] registered multiple times",
+							definition.getAttributeConverter().getClass()
+					)
 			);
 		}
 	}
@@ -3103,7 +3184,7 @@ public class Configuration implements Serializable {
 				final String existingLogicalName = ( String ) physicalToLogical.put( physicalName, logicalName );
 				if ( existingLogicalName != null && ! existingLogicalName.equals( logicalName ) ) {
 					throw new DuplicateMappingException(
-							" Table [" + tableName + "] contains phyical column name [" + physicalName
+							" Table [" + tableName + "] contains physical column name [" + physicalName
 									+ "] represented by different logical column names: [" + existingLogicalName
 									+ "], [" + logicalName + "]",
 							"column-binding",

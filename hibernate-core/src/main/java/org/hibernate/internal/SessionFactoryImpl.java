@@ -35,7 +35,6 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
-import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
@@ -268,7 +267,6 @@ public final class SessionFactoryImpl
         this.jdbcServices = this.serviceRegistry.getService( JdbcServices.class );
         this.dialect = this.jdbcServices.getDialect();
 		this.cacheAccess = this.serviceRegistry.getService( CacheImplementor.class );
-		final RegionFactory regionFactory = cacheAccess.getRegionFactory();
 		this.sqlFunctionRegistry = new SQLFunctionRegistry( getDialect(), cfg.getSqlFunctions() );
 		if ( observer != null ) {
 			this.observer.addObserver( observer );
@@ -300,6 +298,7 @@ public final class SessionFactoryImpl
 				for ( Integrator integrator : integrators ) {
 					integrator.disintegrate( SessionFactoryImpl.this, SessionFactoryImpl.this.serviceRegistry );
 				}
+                integrators.clear();
 			}
 		}
 
@@ -328,14 +327,21 @@ public final class SessionFactoryImpl
 			}
 		}
 
+		imports = new HashMap<String,String>( cfg.getImports() );
 
 		///////////////////////////////////////////////////////////////////////
 		// Prepare persisters and link them up with their cache
 		// region/access-strategy
 
+		final RegionFactory regionFactory = cacheAccess.getRegionFactory();
 		final String cacheRegionPrefix = settings.getCacheRegionPrefix() == null ? "" : settings.getCacheRegionPrefix() + ".";
-
 		final PersisterFactory persisterFactory = serviceRegistry.getService( PersisterFactory.class );
+
+		// todo : consider removing this silliness and just have EntityPersister directly implement ClassMetadata
+		//		EntityPersister.getClassMetadata() for the internal impls simply "return this";
+		//		collapsing those would allow us to remove this "extra" Map
+		//
+		// todo : similar for CollectionPersister/CollectionMetadata
 
 		entityPersisters = new HashMap();
 		Map entityAccessStrategies = new HashMap();
@@ -357,15 +363,15 @@ public final class SessionFactoryImpl
 					cacheAccess.addCacheRegion( cacheRegionName, entityRegion );
 				}
 			}
-			
+
 			NaturalIdRegionAccessStrategy naturalIdAccessStrategy = null;
 			if ( model.hasNaturalId() && model.getNaturalIdCacheRegionName() != null ) {
 				final String naturalIdCacheRegionName = cacheRegionPrefix + model.getNaturalIdCacheRegionName();
 				naturalIdAccessStrategy = ( NaturalIdRegionAccessStrategy ) entityAccessStrategies.get( naturalIdCacheRegionName );
-				
+
 				if ( naturalIdAccessStrategy == null && settings.isSecondLevelCacheEnabled() ) {
 					final CacheDataDescriptionImpl cacheDataDescription = CacheDataDescriptionImpl.decode( model );
-					
+
 					NaturalIdRegion naturalIdRegion = null;
 					try {
 						naturalIdRegion = regionFactory.buildNaturalIdRegion( naturalIdCacheRegionName, properties,
@@ -379,7 +385,7 @@ public final class SessionFactoryImpl
 								model.getEntityName()
 						);
 					}
-					
+
 					if (naturalIdRegion != null) {
 						naturalIdAccessStrategy = naturalIdRegion.buildAccessStrategy( regionFactory.getDefaultAccessType() );
 						entityAccessStrategies.put( naturalIdCacheRegionName, naturalIdAccessStrategy );
@@ -387,7 +393,7 @@ public final class SessionFactoryImpl
 					}
 				}
 			}
-			
+
 			EntityPersister cp = persisterFactory.createEntityPersister(
 					model,
 					accessStrategy,
@@ -461,19 +467,17 @@ public final class SessionFactoryImpl
 				cfg.getSqlResultSetMappings().values(),
 				toProcedureCallMementos( cfg.getNamedProcedureCallMap(), cfg.getSqlResultSetMappings() )
 		);
-		imports = new HashMap<String,String>( cfg.getImports() );
 
 		// after *all* persisters and named queries are registered
-		Iterator iter = entityPersisters.values().iterator();
-		while ( iter.hasNext() ) {
-			final EntityPersister persister = ( ( EntityPersister ) iter.next() );
+		for ( EntityPersister persister : entityPersisters.values() ) {
+			persister.generateEntityDefinition();
+		}
+
+		for ( EntityPersister persister : entityPersisters.values() ) {
 			persister.postInstantiate();
 			registerEntityNameResolvers( persister );
-
 		}
-		iter = collectionPersisters.values().iterator();
-		while ( iter.hasNext() ) {
-			final CollectionPersister persister = ( ( CollectionPersister ) iter.next() );
+		for ( CollectionPersister persister : collectionPersisters.values() ) {
 			persister.postInstantiate();
 		}
 
@@ -736,6 +740,7 @@ public final class SessionFactoryImpl
 				for ( Integrator integrator : integrators ) {
 					integrator.disintegrate( SessionFactoryImpl.this, SessionFactoryImpl.this.serviceRegistry );
 				}
+                integrators.clear();
 			}
 		}
 
@@ -1068,6 +1073,7 @@ public final class SessionFactoryImpl
 		entityNameResolvers.put( resolver, ENTITY_NAME_RESOLVER_MAP_VALUE );
 	}
 
+	@Override
 	public Iterable<EntityNameResolver> iterateEntityNameResolvers() {
 		return entityNameResolvers.keySet();
 	}
@@ -1534,6 +1540,8 @@ public final class SessionFactoryImpl
 	}
 
 	static class SessionBuilderImpl implements SessionBuilderImplementor {
+		private static final Logger log = CoreLogging.logger( SessionBuilderImpl.class );
+
 		private final SessionFactoryImpl sessionFactory;
 		private SessionOwner sessionOwner;
 		private Interceptor interceptor;
@@ -1566,6 +1574,7 @@ public final class SessionFactoryImpl
 
 		@Override
 		public Session openSession() {
+			log.tracef( "Opening Hibernate Session.  tenant=%s, owner=%s", tenantIdentifier, sessionOwner );
 			return new SessionImpl(
 					connection,
 					sessionFactory,

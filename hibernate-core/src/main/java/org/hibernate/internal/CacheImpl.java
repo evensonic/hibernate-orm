@@ -232,6 +232,9 @@ public class CacheImpl implements CacheImplementor {
 	@Override
 	public void evictDefaultQueryRegion() {
 		if ( sessionFactory.getSettings().isQueryCacheEnabled() ) {
+            if ( LOG.isDebugEnabled() ) {
+                LOG.debug( "Evicting default query region cache." );
+            }
 			sessionFactory.getQueryCache().clear();
 		}
 	}
@@ -247,6 +250,9 @@ public class CacheImpl implements CacheImplementor {
 			QueryCache namedQueryCache = queryCaches.get( regionName );
 			// TODO : cleanup entries in queryCaches + allCacheRegions ?
 			if ( namedQueryCache != null ) {
+                if ( LOG.isDebugEnabled() ) {
+                    LOG.debugf( "Evicting query cache, region: %s", regionName );
+                }
 				namedQueryCache.clear();
 			}
 		}
@@ -257,6 +263,9 @@ public class CacheImpl implements CacheImplementor {
 		if ( CollectionHelper.isEmpty( queryCaches ) ) {
 			return;
 		}
+        if ( LOG.isDebugEnabled() ) {
+            LOG.debug( "Evicting cache of all query regions." );
+        }
 		for ( QueryCache queryCache : queryCaches.values() ) {
 			queryCache.clear();
 			// TODO : cleanup entries in queryCaches + allCacheRegions ?
@@ -353,5 +362,14 @@ public class CacheImpl implements CacheImplementor {
 	@Override
 	public RegionFactory getRegionFactory() {
 		return regionFactory;
+	}
+	
+	@Override
+	public void evictAllRegions() {
+		evictCollectionRegions();
+		evictDefaultQueryRegion();
+		evictEntityRegions();
+		evictQueryRegions();
+		evictNaturalIdRegions();
 	}
 }

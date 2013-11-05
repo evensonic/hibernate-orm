@@ -25,6 +25,7 @@ package org.hibernate.persister.walking.internal;
 
 import java.util.Iterator;
 
+import org.hibernate.FetchMode;
 import org.hibernate.engine.FetchStrategy;
 import org.hibernate.engine.FetchStyle;
 import org.hibernate.engine.FetchTiming;
@@ -38,6 +39,7 @@ import org.hibernate.persister.entity.AbstractEntityPersister;
 import org.hibernate.persister.entity.EntityPersister;
 import org.hibernate.persister.entity.OuterJoinLoadable;
 import org.hibernate.persister.spi.HydratedCompoundValueHandler;
+import org.hibernate.persister.walking.spi.AnyMappingDefinition;
 import org.hibernate.persister.walking.spi.AssociationAttributeDefinition;
 import org.hibernate.persister.walking.spi.AssociationKey;
 import org.hibernate.persister.walking.spi.AttributeDefinition;
@@ -47,6 +49,7 @@ import org.hibernate.persister.walking.spi.CompositeCollectionElementDefinition;
 import org.hibernate.persister.walking.spi.CompositionDefinition;
 import org.hibernate.persister.walking.spi.EntityDefinition;
 import org.hibernate.persister.walking.spi.WalkingException;
+import org.hibernate.type.AnyType;
 import org.hibernate.type.AssociationType;
 import org.hibernate.type.CompositeType;
 import org.hibernate.type.Type;
@@ -66,10 +69,10 @@ public class CompositionSingularSubAttributesHelper {
 	 * Get composite ID sub-attribute definitions.
 	 *
 	 * @param entityPersister - the entity persister.
+	 *
 	 * @return composite ID sub-attribute definitions.
 	 */
-	public static Iterable<AttributeDefinition> getIdentifierSubAttributes(
-			final AbstractEntityPersister entityPersister) {
+	public static Iterable<AttributeDefinition> getIdentifierSubAttributes(AbstractEntityPersister entityPersister) {
 		return getSingularSubAttributes(
 				entityPersister,
 				entityPersister,
@@ -94,6 +97,18 @@ public class CompositionSingularSubAttributesHelper {
 				(CompositeType) collectionPersister.getElementType(),
 				collectionPersister.getTableName(),
 				collectionPersister.getElementColumnNames()
+		);
+	}
+
+	public static Iterable<AttributeDefinition> getCompositeCollectionIndexSubAttributes(CompositeCollectionElementDefinition compositionElementDefinition){
+		final QueryableCollection collectionPersister =
+				(QueryableCollection) compositionElementDefinition.getCollectionDefinition().getCollectionPersister();
+		return getSingularSubAttributes(
+				compositionElementDefinition.getSource(),
+				(OuterJoinLoadable) collectionPersister.getOwnerEntityPersister(),
+				(CompositeType) collectionPersister.getIndexType(),
+				collectionPersister.getTableName(),
+				collectionPersister.getIndexColumnNames()
 		);
 	}
 
@@ -128,6 +143,10 @@ public class CompositionSingularSubAttributesHelper {
 						final int columnSpan = type.getColumnSpan( ownerEntityPersister.getFactory() );
 						final String[] subAttributeLhsColumns = ArrayHelper.slice( lhsColumns, columnPosition, columnSpan );
 
+
+						final boolean[] propertyNullability = compositeType.getPropertyNullability();
+						final boolean nullable = propertyNullability == null || propertyNullability[subAttributeNumber];
+
 						currentColumnPosition += columnSpan;
 
 						if ( type.isAssociationType() ) {
@@ -135,25 +154,40 @@ public class CompositionSingularSubAttributesHelper {
 							return new AssociationAttributeDefinition() {
 								@Override
 								public AssociationKey getAssociationKey() {
-									/* TODO: is this always correct? */
-									//return new AssociationKey(
-									//		joinable.getTableName(),
-									//		JoinHelper.getRHSColumnNames( aType, getEntityPersister().getFactory() )
-									//);
-									return new AssociationKey(
-											lhsTableName,
-											subAttributeLhsColumns
-									);
+									return new AssociationKey( lhsTableName, subAttributeLhsColumns );
 								}
 
+
 								@Override
-								public boolean isCollection() {
-									return false;
+								public AssociationNature getAssociationNature() {
+									if ( type.isAnyType() ) {
+										return AssociationNature.ANY;
+									}
+									else {
+										// cannot be a collection
+										return AssociationNature.ENTITY;
+									}
 								}
 
 								@Override
 								public EntityDefinition toEntityDefinition() {
+									if ( getAssociationNature() != AssociationNature.ENTITY ) {
+										throw new WalkingException(
+												"Cannot build EntityDefinition from non-entity-typed attribute"
+										);
+									}
 									return (EntityPersister) aType.getAssociatedJoinable( ownerEntityPersister.getFactory() );
+								}
+
+								@Override
+								public AnyMappingDefinition toAnyDefinition() {
+									if ( getAssociationNature() != AssociationNature.ANY ) {
+										throw new WalkingException(
+												"Cannot build AnyMappingDefinition from non-any-typed attribute"
+										);
+									}
+									// todo : not sure how lazy is propogated into the component for a subattribute of type any
+									return new StandardAnyTypeDefinition( (AnyType) aType, false );
 								}
 
 								@Override
@@ -182,8 +216,13 @@ public class CompositionSingularSubAttributesHelper {
 								}
 
 								@Override
-								public Type getType() {
-									return type;
+								public AssociationType getType() {
+									return aType;
+								}
+
+								@Override
+								public boolean isNullable() {
+									return nullable;
 								}
 
 								@Override
@@ -200,13 +239,18 @@ public class CompositionSingularSubAttributesHelper {
 								}
 
 								@Override
-								public Type getType() {
-									return type;
+								public CompositeType getType() {
+									return (CompositeType) type;
+								}
+
+								@Override
+								public boolean isNullable() {
+									return nullable;
 								}
 
 								@Override
 								public AttributeSource getSource() {
-									return this;
+									return source;
 								}
 
 								@Override
@@ -231,6 +275,11 @@ public class CompositionSingularSubAttributesHelper {
 								@Override
 								public Type getType() {
 									return type;
+								}
+
+								@Override
+								public boolean isNullable() {
+									return nullable;
 								}
 
 								@Override

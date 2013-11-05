@@ -29,10 +29,12 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -123,6 +125,11 @@ import org.hibernate.sql.SelectFragment;
 import org.hibernate.sql.SimpleSelect;
 import org.hibernate.sql.Template;
 import org.hibernate.sql.Update;
+import org.hibernate.tuple.GenerationTiming;
+import org.hibernate.tuple.InDatabaseValueGenerationStrategy;
+import org.hibernate.tuple.InMemoryValueGenerationStrategy;
+import org.hibernate.tuple.NonIdentifierAttribute;
+import org.hibernate.tuple.ValueGeneration;
 import org.hibernate.tuple.entity.EntityMetamodel;
 import org.hibernate.tuple.entity.EntityTuplizer;
 import org.hibernate.type.AssociationType;
@@ -227,7 +234,7 @@ public abstract class AbstractEntityPersister
 	// dynamic filters attached to the class-level
 	private final FilterHelper filterHelper;
 
-	private final Set affectingFetchProfileNames = new HashSet();
+	private final Set<String> affectingFetchProfileNames = new HashSet<String>();
 
 	private final Map uniqueKeyLoaders = new HashMap();
 	private final Map lockers = new HashMap();
@@ -800,7 +807,7 @@ public abstract class AbstractEntityPersister
 				: new StandardCacheEntryHelper( this );
 	}
 
-	protected boolean canUseReferenceCacheEntries() {
+	public boolean canUseReferenceCacheEntries() {
 		// todo : should really validate that the cache access type is read-only
 
 		if ( ! factory.getSettings().isDirectReferenceCacheEntriesEnabled() ) {
@@ -1678,14 +1685,14 @@ public abstract class AbstractEntityPersister
 	}
 
 	protected String generateInsertGeneratedValuesSelectString() {
-		return generateGeneratedValuesSelectString( getPropertyInsertGenerationInclusions() );
+		return generateGeneratedValuesSelectString( GenerationTiming.INSERT );
 	}
 
 	protected String generateUpdateGeneratedValuesSelectString() {
-		return generateGeneratedValuesSelectString( getPropertyUpdateGenerationInclusions() );
+		return generateGeneratedValuesSelectString( GenerationTiming.ALWAYS );
 	}
 
-	private String generateGeneratedValuesSelectString(ValueInclusion[] inclusions) {
+	private String generateGeneratedValuesSelectString(final GenerationTiming generationTimingToMatch) {
 		Select select = new Select( getFactory().getDialect() );
 
 		if ( getFactory().getSettings().isCommentsEnabled() ) {
@@ -1697,17 +1704,28 @@ public abstract class AbstractEntityPersister
 		// Here we render the select column list based on the properties defined as being generated.
 		// For partial component generation, we currently just re-select the whole component
 		// rather than trying to handle the individual generated portions.
-		String selectClause = concretePropertySelectFragment( getRootAlias(), inclusions );
+		String selectClause = concretePropertySelectFragment(
+				getRootAlias(),
+				new InclusionChecker() {
+					@Override
+					public boolean includeProperty(int propertyNumber) {
+						final InDatabaseValueGenerationStrategy generationStrategy
+								= entityMetamodel.getInDatabaseValueGenerationStrategies()[propertyNumber];
+						return generationStrategy != null
+								&& generationStrategy.getGenerationTiming() == generationTimingToMatch;
+					}
+				}
+		);
 		selectClause = selectClause.substring( 2 );
 
 		String fromClause = fromTableFragment( getRootAlias() ) +
 				fromJoinFragment( getRootAlias(), true, false );
 
 		String whereClause = new StringBuilder()
-			.append( StringHelper.join( "=? and ", aliasedIdColumns ) )
-			.append( "=?" )
-			.append( whereJoinFragment( getRootAlias(), true, false ) )
-			.toString();
+				.append( StringHelper.join( "=? and ", aliasedIdColumns ) )
+				.append( "=?" )
+				.append( whereJoinFragment( getRootAlias(), true, false ) )
+				.toString();
 
 		return select.setSelectClause( selectClause )
 				.setFromClause( fromClause )
@@ -1718,21 +1736,6 @@ public abstract class AbstractEntityPersister
 
 	protected static interface InclusionChecker {
 		public boolean includeProperty(int propertyNumber);
-	}
-
-	protected String concretePropertySelectFragment(String alias, final ValueInclusion[] inclusions) {
-		return concretePropertySelectFragment(
-				alias,
-				new InclusionChecker() {
-					// TODO : currently we really do not handle ValueInclusion.PARTIAL...
-					// ValueInclusion.PARTIAL would indicate parts of a component need to
-					// be included in the select; currently we then just render the entire
-					// component into the select clause in that case.
-					public boolean includeProperty(int propertyNumber) {
-						return inclusions[propertyNumber] != ValueInclusion.NONE;
-					}
-				}
-		);
 	}
 
 	protected String concretePropertySelectFragment(String alias, final boolean[] includeProperty) {
@@ -2147,6 +2150,20 @@ public abstract class AbstractEntityPersister
 		return subclassPropertyNameClosure;
 	}
 
+    @Override
+    public int[] resolveAttributeIndexes(Set<String> properties) {
+        Iterator<String> iter = properties.iterator();
+        int[] fields = new int[properties.size()];
+        int counter = 0;
+        while(iter.hasNext()) {
+            Integer index = entityMetamodel.getPropertyIndexOrNull(iter.next());
+            if(index != null)
+                fields[counter++] = index;
+        }
+
+        return fields;
+    }
+
 	protected String[] getSubclassPropertySubclassNameClosure() {
 		return subclassPropertySubclassNameClosure;
 	}
@@ -2495,6 +2512,15 @@ public abstract class AbstractEntityPersister
 				.buildLoader( this, batchSize, lockOptions, getFactory(), loadQueryInfluencers );
 	}
 
+	/**
+	 * Used internally to create static loaders.  These are the default set of loaders used to handle get()/load()
+	 * processing.  lock() handling is done by the LockingStrategy instances (see {@link #getLocker})
+	 *
+	 * @param lockMode The lock mode to apply to the thing being loaded.
+	 * @return
+	 *
+	 * @throws MappingException
+	 */
 	protected UniqueEntityLoader createEntityLoader(LockMode lockMode) throws MappingException {
 		return createEntityLoader( lockMode, LoadQueryInfluencers.NONE );
 	}
@@ -2619,8 +2645,8 @@ public abstract class AbstractEntityPersister
 	}
 
 	private boolean checkVersion(final boolean[] includeProperty) {
-        return includeProperty[ getVersionProperty() ] ||
-				entityMetamodel.getPropertyUpdateGenerationInclusions()[ getVersionProperty() ] != ValueInclusion.NONE;
+        return includeProperty[ getVersionProperty() ]
+				|| entityMetamodel.isVersionGenerated();
 	}
 
 	protected String generateInsertString(boolean[] includeProperty, int j) {
@@ -2634,8 +2660,7 @@ public abstract class AbstractEntityPersister
 	/**
 	 * Generate the SQL that inserts a row
 	 */
-	protected String generateInsertString(boolean identityInsert,
-			boolean[] includeProperty, int j) {
+	protected String generateInsertString(boolean identityInsert, boolean[] includeProperty, int j) {
 
 		// todo : remove the identityInsert param and variations;
 		//   identity-insert strings are now generated from generateIdentityInsertString()
@@ -2645,13 +2670,37 @@ public abstract class AbstractEntityPersister
 
 		// add normal properties
 		for ( int i = 0; i < entityMetamodel.getPropertySpan(); i++ ) {
-			
-			if ( includeProperty[i] && isPropertyOfTable( i, j )
-					&& !lobProperties.contains( i ) ) {
-				// this property belongs on the table and is to be inserted
-				insert.addColumns( getPropertyColumnNames(i),
-						propertyColumnInsertable[i],
-						propertyColumnWriters[i] );
+			// the incoming 'includeProperty' array only accounts for insertable defined at the root level, it
+			// does not account for partially generated composites etc.  We also need to account for generation
+			// values
+			if ( isPropertyOfTable( i, j ) ) {
+				if ( !lobProperties.contains( i ) ) {
+					final InDatabaseValueGenerationStrategy generationStrategy = entityMetamodel.getInDatabaseValueGenerationStrategies()[i];
+					if ( generationStrategy != null && generationStrategy.getGenerationTiming().includesInsert() ) {
+						if ( generationStrategy.referenceColumnsInSql() ) {
+							final String[] values;
+							if ( generationStrategy.getReferencedColumnValues() == null ) {
+								values = propertyColumnWriters[i];
+							}
+							else {
+								final int numberOfColumns = propertyColumnWriters[i].length;
+								values = new String[ numberOfColumns ];
+								for ( int x = 0; x < numberOfColumns; x++ ) {
+									if ( generationStrategy.getReferencedColumnValues()[x] != null ) {
+										values[x] = generationStrategy.getReferencedColumnValues()[x];
+									}
+									else {
+										values[x] = propertyColumnWriters[i][x];
+									}
+								}
+							}
+							insert.addColumns( getPropertyColumnNames(i), propertyColumnInsertable[i], values );
+						}
+					}
+					else if ( includeProperty[i] ) {
+						insert.addColumns( getPropertyColumnNames(i), propertyColumnInsertable[i], propertyColumnWriters[i] );
+					}
+				}
 			}
 		}
 
@@ -2678,9 +2727,11 @@ public abstract class AbstractEntityPersister
 		for ( int i : lobProperties ) {
 			if ( includeProperty[i] && isPropertyOfTable( i, j ) ) {
 				// this property belongs on the table and is to be inserted
-				insert.addColumns( getPropertyColumnNames(i),
+				insert.addColumns(
+						getPropertyColumnNames(i),
 						propertyColumnInsertable[i],
-						propertyColumnWriters[i] );
+						propertyColumnWriters[i]
+				);
 			}
 		}
 
@@ -3398,6 +3449,18 @@ public abstract class AbstractEntityPersister
 	        final Object rowId,
 	        final SessionImplementor session) throws HibernateException {
 
+		// apply any pre-update in-memory value generation
+		if ( getEntityMetamodel().hasPreUpdateGeneratedValues() ) {
+			final InMemoryValueGenerationStrategy[] strategies = getEntityMetamodel().getInMemoryValueGenerationStrategies();
+			for ( int i = 0; i < strategies.length; i++ ) {
+				if ( strategies[i] != null && strategies[i].getGenerationTiming().includesUpdate() ) {
+					fields[i] = strategies[i].getValueGenerator().generateValue( session, object );
+					setPropertyValue( object, i, fields[i] );
+					// todo : probably best to add to dirtyFields if not-null
+				}
+			}
+		}
+
 		//note: dirtyFields==null means we had no snapshot, and we couldn't get one using select-before-update
 		//	  oldFields==null just means we had no snapshot to begin with (we might have used select-before-update to get the dirtyFields)
 
@@ -3495,8 +3558,17 @@ public abstract class AbstractEntityPersister
 		return id;
 	}
 
-	public void insert(Serializable id, Object[] fields, Object object, SessionImplementor session)
-			throws HibernateException {
+	public void insert(Serializable id, Object[] fields, Object object, SessionImplementor session) {
+		// apply any pre-insert in-memory value generation
+		if ( getEntityMetamodel().hasPreInsertGeneratedValues() ) {
+			final InMemoryValueGenerationStrategy[] strategies = getEntityMetamodel().getInMemoryValueGenerationStrategies();
+			for ( int i = 0; i < strategies.length; i++ ) {
+				if ( strategies[i] != null && strategies[i].getGenerationTiming().includesInsert() ) {
+					fields[i] = strategies[i].getValueGenerator().generateValue( session, object );
+					setPropertyValue( object, i, fields[i] );
+				}
+			}
+		}
 
 		final int span = getTableSpan();
 		if ( entityMetamodel.isDynamicInsert() ) {
@@ -3765,9 +3837,23 @@ public abstract class AbstractEntityPersister
 		return StringHelper.generateAlias( getEntityName() );
 	}
 
+	/**
+	 * Post-construct is a callback for AbstractEntityPersister subclasses to call after they are all done with their
+	 * constructor processing.  It allows AbstractEntityPersister to extend its construction after all subclass-specific
+	 * details have been handled.
+	 *
+	 * @param mapping The mapping
+	 *
+	 * @throws MappingException Indicates a problem accessing the Mapping
+	 */
 	protected void postConstruct(Mapping mapping) throws MappingException {
-		initPropertyPaths(mapping);
+		initPropertyPaths( mapping );
 
+		//doLateInit();
+		prepareEntityIdentifierDefinition();
+	}
+
+	private void doLateInit() {
 		//insert/update/delete SQL
 		final int joinSpan = getTableSpan();
 		sqlDeleteStrings = new String[joinSpan];
@@ -3824,15 +3910,19 @@ public abstract class AbstractEntityPersister
 		}
 
 		logStaticSQL();
-
 	}
 
-	public void postInstantiate() throws MappingException {
-		generateEntityDefinition();
+	public final void postInstantiate() throws MappingException {
+		doLateInit();
 
 		createLoaders();
 		createUniqueKeyLoaders();
 		createQueryLoader();
+
+		doPostInstantiate();
+	}
+
+	protected void doPostInstantiate() {
 	}
 
 	//needed by subclasses to override the createLoader strategy
@@ -3942,9 +4032,8 @@ public abstract class AbstractEntityPersister
 	}
 
 	private boolean isAffectedByEnabledFetchProfiles(SessionImplementor session) {
-		Iterator itr = session.getLoadQueryInfluencers().getEnabledFetchProfileNames().iterator();
-		while ( itr.hasNext() ) {
-			if ( affectingFetchProfileNames.contains( itr.next() ) ) {
+		for ( String s : session.getLoadQueryInfluencers().getEnabledFetchProfileNames() ) {
+			if ( affectingFetchProfileNames.contains( s ) ) {
 				return true;
 			}
 		}
@@ -4444,7 +4533,7 @@ public abstract class AbstractEntityPersister
 	}
 
 	public boolean isVersionPropertyGenerated() {
-		return isVersioned() && ( getPropertyUpdateGenerationInclusions() [ getVersionProperty() ] != ValueInclusion.NONE );
+		return isVersioned() && getEntityMetamodel().isVersionGenerated();
 	}
 
 	public boolean isVersionPropertyInsertable() {
@@ -4483,12 +4572,14 @@ public abstract class AbstractEntityPersister
 		return entityMetamodel.getPropertyInsertability();
 	}
 
+	@Deprecated
 	public ValueInclusion[] getPropertyInsertGenerationInclusions() {
-		return entityMetamodel.getPropertyInsertGenerationInclusions();
+		return null;
 	}
 
+	@Deprecated
 	public ValueInclusion[] getPropertyUpdateGenerationInclusions() {
-		return entityMetamodel.getPropertyUpdateGenerationInclusions();
+		return null;
 	}
 
 	public boolean[] getPropertyNullability() {
@@ -4622,14 +4713,14 @@ public abstract class AbstractEntityPersister
 		if ( !hasInsertGeneratedProperties() ) {
 			throw new AssertionFailure("no insert-generated properties");
 		}
-		processGeneratedProperties( id, entity, state, session, sqlInsertGeneratedValuesSelectString, getPropertyInsertGenerationInclusions() );
+		processGeneratedProperties( id, entity, state, session, sqlInsertGeneratedValuesSelectString, GenerationTiming.INSERT );
 	}
 
 	public void processUpdateGeneratedProperties(Serializable id, Object entity, Object[] state, SessionImplementor session) {
 		if ( !hasUpdateGeneratedProperties() ) {
 			throw new AssertionFailure("no update-generated properties");
 		}
-		processGeneratedProperties( id, entity, state, session, sqlUpdateGeneratedValuesSelectString, getPropertyUpdateGenerationInclusions() );
+		processGeneratedProperties( id, entity, state, session, sqlUpdateGeneratedValuesSelectString, GenerationTiming.ALWAYS );
 	}
 
 	private void processGeneratedProperties(
@@ -4638,7 +4729,7 @@ public abstract class AbstractEntityPersister
 	        Object[] state,
 	        SessionImplementor session,
 	        String selectionSQL,
-	        ValueInclusion[] includeds) {
+			GenerationTiming matchTiming) {
 		// force immediate execution of the insert batch (if one)
 		session.getTransactionCoordinator().getJdbcCoordinator().executeBatch();
 
@@ -4657,13 +4748,28 @@ public abstract class AbstractEntityPersister
 								MessageHelper.infoString( this, id, getFactory() )
 							);
 					}
-					for ( int i = 0; i < getPropertySpan(); i++ ) {
-						if ( includeds[i] != ValueInclusion.NONE ) {
-							Object hydratedState = getPropertyTypes()[i].hydrate( rs, getPropertyAliases( "", i ), session, entity );
-							state[i] = getPropertyTypes()[i].resolve( hydratedState, session, entity );
-							setPropertyValue( entity, i, state[i] );
+					int propertyIndex = -1;
+					for ( NonIdentifierAttribute attribute : entityMetamodel.getProperties() ) {
+						propertyIndex++;
+						final ValueGeneration valueGeneration = attribute.getValueGenerationStrategy();
+						if ( valueGeneration != null && valueGeneration.getGenerationTiming() == matchTiming ) {
+							final Object hydratedState = attribute.getType().hydrate(
+									rs, getPropertyAliases(
+									"",
+									propertyIndex
+							), session, entity
+							);
+							state[propertyIndex] = attribute.getType().resolve( hydratedState, session, entity );
+							setPropertyValue( entity, propertyIndex, state[propertyIndex] );
 						}
 					}
+//					for ( int i = 0; i < getPropertySpan(); i++ ) {
+//						if ( includeds[i] != ValueInclusion.NONE ) {
+//							Object hydratedState = getPropertyTypes()[i].hydrate( rs, getPropertyAliases( "", i ), session, entity );
+//							state[i] = getPropertyTypes()[i].resolve( hydratedState, session, entity );
+//							setPropertyValue( entity, i, state[i] );
+//						}
+//					}
 				}
 				finally {
 					if ( rs != null ) {
@@ -5090,7 +5196,8 @@ public abstract class AbstractEntityPersister
 	private Iterable<AttributeDefinition> embeddedCompositeIdentifierAttributes;
 	private Iterable<AttributeDefinition> attributeDefinitions;
 
-	protected void generateEntityDefinition() {
+	@Override
+	public void generateEntityDefinition() {
 		prepareEntityIdentifierDefinition();
 		collectAttributeDefinitions();
 	}
@@ -5112,6 +5219,9 @@ public abstract class AbstractEntityPersister
 
 
 	private void prepareEntityIdentifierDefinition() {
+		if ( entityIdentifierDefinition != null ) {
+			return;
+		}
 		final Type idType = getIdentifierType();
 
 		if ( !idType.isComponentType() ) {
@@ -5131,35 +5241,140 @@ public abstract class AbstractEntityPersister
 				EntityIdentifierDefinitionHelper.buildNonEncapsulatedCompositeIdentifierDefinition( this );
 	}
 
-	private void collectAttributeDefinitions() {
-		// todo : leverage the attribute definitions housed on EntityMetamodel
-		// 		for that to work, we'd have to be able to walk our super entity persister(s)
-		attributeDefinitions = new Iterable<AttributeDefinition>() {
-			@Override
-			public Iterator<AttributeDefinition> iterator() {
-				return new Iterator<AttributeDefinition>() {
-//					private final int numberOfAttributes = countSubclassProperties();
-					private final int numberOfAttributes = entityMetamodel.getPropertySpan();
-					private int currentAttributeNumber = 0;
-
-					@Override
-					public boolean hasNext() {
-						return currentAttributeNumber < numberOfAttributes;
-					}
-
-					@Override
-					public AttributeDefinition next() {
-						final int attributeNumber = currentAttributeNumber;
-						currentAttributeNumber++;
-						return entityMetamodel.getProperties()[ attributeNumber ];
-					}
-
-					@Override
-					public void remove() {
-						throw new UnsupportedOperationException( "Remove operation not supported here" );
-					}
-				};
+	private void collectAttributeDefinitions(
+			Map<String,AttributeDefinition> attributeDefinitionsByName,
+			EntityMetamodel metamodel) {
+		for ( int i = 0; i < metamodel.getPropertySpan(); i++ ) {
+			final AttributeDefinition attributeDefinition = metamodel.getProperties()[i];
+			// Don't replace an attribute definition if it is already in attributeDefinitionsByName
+			// because the new value will be from a subclass.
+			final AttributeDefinition oldAttributeDefinition = attributeDefinitionsByName.get(
+					attributeDefinition.getName()
+			);
+			if ( oldAttributeDefinition != null ) {
+				if ( LOG.isTraceEnabled() ) {
+						LOG.tracef(
+								"Ignoring subclass attribute definition [%s.%s] because it is defined in a superclass ",
+								entityMetamodel.getName(),
+								attributeDefinition.getName()
+						);
+				}
 			}
-		};
+			else {
+				attributeDefinitionsByName.put( attributeDefinition.getName(), attributeDefinition );
+			}
+		}
+
+		// see if there are any subclass persisters...
+		final Set<String> subClassEntityNames = metamodel.getSubclassEntityNames();
+		if ( subClassEntityNames == null ) {
+			return;
+		}
+
+		// see if we can find the persisters...
+		for ( String subClassEntityName : subClassEntityNames ) {
+			if ( metamodel.getName().equals( subClassEntityName ) ) {
+				// skip it
+				continue;
+			}
+			try {
+				final EntityPersister subClassEntityPersister = factory.getEntityPersister( subClassEntityName );
+				collectAttributeDefinitions( attributeDefinitionsByName, subClassEntityPersister.getEntityMetamodel() );
+			}
+			catch (MappingException e) {
+				throw new IllegalStateException(
+						String.format(
+								"Could not locate subclass EntityPersister [%s] while processing EntityPersister [%s]",
+								subClassEntityName,
+								metamodel.getName()
+						),
+						e
+				);
+			}
+		}
 	}
+
+	private void collectAttributeDefinitions() {
+		// todo : I think this works purely based on luck atm
+		// 		specifically in terms of the sub/super class entity persister(s) being available.  Bit of chicken-egg
+		// 		problem there:
+		//			* If I do this during postConstruct (as it is now), it works as long as the
+		//			super entity persister is already registered, but I don't think that is necessarily true.
+		//			* If I do this during postInstantiate then lots of stuff in postConstruct breaks if we want
+		//			to try and drive SQL generation on these (which we do ultimately).  A possible solution there
+		//			would be to delay all SQL generation until postInstantiate
+
+		Map<String,AttributeDefinition> attributeDefinitionsByName = new LinkedHashMap<String,AttributeDefinition>();
+		collectAttributeDefinitions( attributeDefinitionsByName, getEntityMetamodel() );
+
+
+//		EntityMetamodel currentEntityMetamodel = this.getEntityMetamodel();
+//		while ( currentEntityMetamodel != null ) {
+//			for ( int i = 0; i < currentEntityMetamodel.getPropertySpan(); i++ ) {
+//				attributeDefinitions.add( currentEntityMetamodel.getProperties()[i] );
+//			}
+//			// see if there is a super class EntityMetamodel
+//			final String superEntityName = currentEntityMetamodel.getSuperclass();
+//			if ( superEntityName != null ) {
+//				currentEntityMetamodel = factory.getEntityPersister( superEntityName ).getEntityMetamodel();
+//			}
+//			else {
+//				currentEntityMetamodel = null;
+//			}
+//		}
+
+		this.attributeDefinitions = Collections.unmodifiableList(
+				new ArrayList<AttributeDefinition>( attributeDefinitionsByName.values() )
+		);
+//		// todo : leverage the attribute definitions housed on EntityMetamodel
+//		// 		for that to work, we'd have to be able to walk our super entity persister(s)
+//		this.attributeDefinitions = new Iterable<AttributeDefinition>() {
+//			@Override
+//			public Iterator<AttributeDefinition> iterator() {
+//				return new Iterator<AttributeDefinition>() {
+////					private final int numberOfAttributes = countSubclassProperties();
+////					private final int numberOfAttributes = entityMetamodel.getPropertySpan();
+//
+//					EntityMetamodel currentEntityMetamodel = entityMetamodel;
+//					int numberOfAttributesInCurrentEntityMetamodel = currentEntityMetamodel.getPropertySpan();
+//
+//					private int currentAttributeNumber;
+//
+//					@Override
+//					public boolean hasNext() {
+//						return currentEntityMetamodel != null
+//								&& currentAttributeNumber < numberOfAttributesInCurrentEntityMetamodel;
+//					}
+//
+//					@Override
+//					public AttributeDefinition next() {
+//						final int attributeNumber = currentAttributeNumber;
+//						currentAttributeNumber++;
+//						final AttributeDefinition next = currentEntityMetamodel.getProperties()[ attributeNumber ];
+//
+//						if ( currentAttributeNumber >= numberOfAttributesInCurrentEntityMetamodel ) {
+//							// see if there is a super class EntityMetamodel
+//							final String superEntityName = currentEntityMetamodel.getSuperclass();
+//							if ( superEntityName != null ) {
+//								currentEntityMetamodel = factory.getEntityPersister( superEntityName ).getEntityMetamodel();
+//								if ( currentEntityMetamodel != null ) {
+//									numberOfAttributesInCurrentEntityMetamodel = currentEntityMetamodel.getPropertySpan();
+//									currentAttributeNumber = 0;
+//								}
+//							}
+//						}
+//
+//						return next;
+//					}
+//
+//					@Override
+//					public void remove() {
+//						throw new UnsupportedOperationException( "Remove operation not supported here" );
+//					}
+//				};
+//			}
+//		};
+	}
+
+
 }

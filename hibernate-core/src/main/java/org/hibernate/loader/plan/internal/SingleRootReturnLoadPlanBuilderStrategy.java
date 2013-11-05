@@ -36,10 +36,11 @@ import org.hibernate.loader.plan.spi.build.AbstractLoadPlanBuilderStrategy;
 import org.hibernate.loader.plan.spi.CollectionReturn;
 import org.hibernate.loader.plan.spi.EntityReturn;
 import org.hibernate.loader.plan.spi.LoadPlan;
-import org.hibernate.loader.plan.spi.build.LoadPlanBuilderStrategy;
 import org.hibernate.loader.plan.spi.Return;
+import org.hibernate.loader.plan2.spi.FetchSource;
 import org.hibernate.persister.collection.CollectionPersister;
 import org.hibernate.persister.walking.spi.AssociationAttributeDefinition;
+import org.hibernate.persister.walking.spi.AssociationKey;
 import org.hibernate.persister.walking.spi.CollectionDefinition;
 import org.hibernate.persister.walking.spi.EntityDefinition;
 
@@ -55,8 +56,7 @@ import org.hibernate.persister.walking.spi.EntityDefinition;
  * @author Steve Ebersole
  */
 public class SingleRootReturnLoadPlanBuilderStrategy
-		extends AbstractLoadPlanBuilderStrategy
-		implements LoadPlanBuilderStrategy {
+		extends AbstractLoadPlanBuilderStrategy {
 
 	private final LoadQueryInfluencers loadQueryInfluencers;
 
@@ -91,7 +91,15 @@ public class SingleRootReturnLoadPlanBuilderStrategy
 
 	@Override
 	public LoadPlan buildLoadPlan() {
-		return new LoadPlanImpl( false, rootReturn );
+		if ( EntityReturn.class.isInstance( rootReturn ) ) {
+			return new LoadPlanImpl( (EntityReturn) rootReturn );
+		}
+		else if ( CollectionReturn.class.isInstance( rootReturn ) ) {
+			return new LoadPlanImpl( (CollectionReturn) rootReturn );
+		}
+		else {
+			throw new IllegalStateException( "Unexpected root Return type : " + rootReturn );
+		}
 	}
 
 	@Override
@@ -144,5 +152,10 @@ public class SingleRootReturnLoadPlanBuilderStrategy
 				persister.getOwnerEntityPersister().getEntityName(),
 				StringHelper.unqualify( collectionRole )
 		);
+	}
+
+	@Override
+	public FetchSource registeredFetchSource(AssociationKey associationKey) {
+		return null;
 	}
 }

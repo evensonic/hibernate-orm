@@ -26,6 +26,8 @@ package org.hibernate.procedure.internal;
 import java.util.Map;
 import java.util.Set;
 
+import org.jboss.logging.Logger;
+
 import org.hibernate.LockMode;
 import org.hibernate.MappingException;
 import org.hibernate.engine.ResultSetMappingDefinition;
@@ -35,6 +37,7 @@ import org.hibernate.engine.spi.SessionFactoryImplementor;
 import org.hibernate.internal.util.collections.CollectionHelper;
 import org.hibernate.loader.custom.sql.SQLQueryReturnProcessor;
 import org.hibernate.persister.entity.EntityPersister;
+import org.hibernate.procedure.UnknownSqlResultSetMappingException;
 
 /**
  * Utilities used to implement procedure call support.
@@ -42,6 +45,8 @@ import org.hibernate.persister.entity.EntityPersister;
  * @author Steve Ebersole
  */
 public class Util {
+	private static final Logger log = Logger.getLogger( Util.class );
+
 	private Util() {
 	}
 
@@ -127,10 +132,13 @@ public class Util {
 	 */
 	public static void resolveResultSetMappings(ResultSetMappingResolutionContext context, String... resultSetMappingNames) {
 		for ( String resultSetMappingName : resultSetMappingNames ) {
+			log.tracef( "Starting attempt resolve named result-set-mapping : %s", resultSetMappingName );
 			final ResultSetMappingDefinition mapping = context.findResultSetMapping( resultSetMappingName );
 			if ( mapping == null ) {
-				throw new MappingException( "Unknown SqlResultSetMapping [" + resultSetMappingName + "]" );
+				throw new UnknownSqlResultSetMappingException( "Unknown SqlResultSetMapping [" + resultSetMappingName + "]" );
 			}
+
+			log.tracef( "Found result-set-mapping : %s", mapping.traceLoggableFormat() );
 
 			context.addQueryReturns( mapping.getQueryReturns() );
 

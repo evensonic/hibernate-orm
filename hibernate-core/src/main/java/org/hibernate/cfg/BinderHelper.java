@@ -288,7 +288,7 @@ public class BinderHelper {
 					clone.setInsertable( false );
 					clone.setUpdateable( false );
 					clone.setNaturalIdentifier( false );
-					clone.setGeneration( property.getGeneration() );
+					clone.setValueGenerationStrategy( property.getValueGenerationStrategy() );
 					embeddedComp.addProperty( clone );
                                 }
                                     synthProp = new SyntheticProperty();
@@ -736,7 +736,7 @@ public class BinderHelper {
 
 		//id columns
 		final String propertyName = inferredData.getPropertyName();
-		Ejb3Column.checkPropertyConsistency( columns, propertyHolder.getEntityName() + propertyName );
+		Ejb3Column.checkPropertyConsistency( columns, propertyHolder.getEntityName() + "." + propertyName );
 		for (Ejb3JoinColumn column : columns) {
 			column.linkWithValue( value );
 		}

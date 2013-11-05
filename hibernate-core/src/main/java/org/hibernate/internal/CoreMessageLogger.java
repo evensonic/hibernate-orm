@@ -56,14 +56,15 @@ import org.hibernate.engine.loading.internal.EntityLoadContext;
 import org.hibernate.engine.spi.CollectionKey;
 import org.hibernate.engine.spi.SessionFactoryImplementor;
 import org.hibernate.id.IntegralDataTypeHolder;
+import org.hibernate.service.Service;
 import org.hibernate.type.BasicType;
 import org.hibernate.type.SerializationException;
 import org.hibernate.type.Type;
 import org.jboss.logging.BasicLogger;
-import org.jboss.logging.Cause;
-import org.jboss.logging.LogMessage;
-import org.jboss.logging.Message;
-import org.jboss.logging.MessageLogger;
+import org.jboss.logging.annotations.Cause;
+import org.jboss.logging.annotations.LogMessage;
+import org.jboss.logging.annotations.Message;
+import org.jboss.logging.annotations.MessageLogger;
 
 /**
  * The jboss-logging {@link MessageLogger} for the hibernate-core module.  It reserves message ids ranging from
@@ -384,8 +385,8 @@ public interface CoreMessageLogger extends BasicLogger {
 	void handlingTransientEntity();
 
 	@LogMessage(level = INFO)
-	@Message(value = "Hibernate connection pool size: %s", id = 115)
-	void hibernateConnectionPoolSize(int poolSize);
+	@Message(value = "Hibernate connection pool size: %s (min=%s)", id = 115)
+	void hibernateConnectionPoolSize(int poolSize, int minSize);
 
 	@LogMessage(level = WARN)
 	@Message(value = "Config specified explicit optimizer of [%s], but [%s=%s; honoring optimizer setting", id = 116)
@@ -612,9 +613,9 @@ public interface CoreMessageLogger extends BasicLogger {
 	@Message(value = "Package not found or wo package-info.java: %s", id = 194)
 	void packageNotFound(String packageName);
 
-	@LogMessage(level = WARN)
-	@Message(value = "Parameter position [%s] occurred as both JPA and Hibernate positional parameter", id = 195)
-	void parameterPositionOccurredAsBothJpaAndHibernatePositionalParameter(Integer position);
+//	@LogMessage(level = WARN)
+//	@Message(value = "Parameter position [%s] occurred as both JPA and Hibernate positional parameter", id = 195)
+//	void parameterPositionOccurredAsBothJpaAndHibernatePositionalParameter(Integer position);
 
 	@LogMessage(level = ERROR)
 	@Message(value = "Error parsing XML (%s) : %s", id = 196)
@@ -804,9 +805,9 @@ public interface CoreMessageLogger extends BasicLogger {
 	void splitQueries(String sourceQuery,
 					  int length);
 
-	@LogMessage(level = ERROR)
-	@Message(value = "SQLException escaped proxy", id = 246)
-	void sqlExceptionEscapedProxy(@Cause SQLException e);
+//	@LogMessage(level = ERROR)
+//	@Message(value = "SQLException escaped proxy", id = 246)
+//	void sqlExceptionEscapedProxy(@Cause SQLException e);
 
 	@LogMessage(level = WARN)
 	@Message(value = "SQL Error: %s, SQLState: %s", id = 247)
@@ -1621,4 +1622,19 @@ public interface CoreMessageLogger extends BasicLogger {
 	@LogMessage(level = INFO)
 	@Message( value = "'javax.persistence.validation.mode' named multiple values : %s", id = 448 )
 	void multipleValidationModes(String modes);
+
+	@LogMessage(level = WARN)
+	@Message(
+			id = 449,
+			value = "@Convert annotation applied to Map attribute [%s] did not explicitly specify attributeName " +
+					"using 'key'/'value' as required by spec; attempting to DoTheRightThing"
+	)
+	void nonCompliantMapConversion(String collectionRole);
+
+	@LogMessage(level = WARN)
+	@Message(
+			id = 450,
+			value = "Encountered request for Service by non-primary service role [%s -> %s]; please update usage"
+	)
+	void alternateServiceRole(String requestedRole, String targetRole);
 }

@@ -110,4 +110,24 @@ public class QueryHints {
 	 */
 	public static final String TIMEOUT_JPA = "javax.persistence.query.timeout";
 
+	/**
+	 * Available to apply lock mode to a native SQL query since JPA requires that
+	 * {@link javax.persistence.Query#setLockMode} throw an IllegalStateException if called for a native query.
+	 * <p/>
+	 * Accepts a {@link javax.persistence.LockModeType} or a {@link org.hibernate.LockMode}
+	 */
+	public static final String NATIVE_LOCKMODE = "org.hibernate.lockMode";
+	
+	/**
+	 * Hint providing an EntityGraph.  With JPQL/HQL, the sole functionality is attribute nodes are treated as
+	 * FetchType.EAGER.  Laziness is not affected.
+	 */
+	public static final String FETCHGRAPH = "javax.persistence.fetchgraph";
+	
+	/**
+	 * Hint providing an EntityGraph.  With JPQL/HQL, the sole functionality is attribute nodes are treated as
+	 * FetchType.EAGER.  Laziness is not affected.
+	 */
+	public static final String LOADGRAPH = "javax.persistence.loadgraph";
+
 }

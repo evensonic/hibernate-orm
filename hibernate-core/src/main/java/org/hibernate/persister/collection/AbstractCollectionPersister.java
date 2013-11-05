@@ -81,6 +81,8 @@ import org.hibernate.persister.entity.Loadable;
 import org.hibernate.persister.entity.PropertyMapping;
 import org.hibernate.persister.entity.Queryable;
 import org.hibernate.persister.walking.internal.CompositionSingularSubAttributesHelper;
+import org.hibernate.persister.walking.internal.StandardAnyTypeDefinition;
+import org.hibernate.persister.walking.spi.AnyMappingDefinition;
 import org.hibernate.persister.walking.spi.AttributeDefinition;
 import org.hibernate.persister.walking.spi.AttributeSource;
 import org.hibernate.persister.walking.spi.CollectionDefinition;
@@ -89,6 +91,7 @@ import org.hibernate.persister.walking.spi.CollectionIndexDefinition;
 import org.hibernate.persister.walking.spi.CompositeCollectionElementDefinition;
 import org.hibernate.persister.walking.spi.CompositionDefinition;
 import org.hibernate.persister.walking.spi.EntityDefinition;
+import org.hibernate.persister.walking.spi.WalkingException;
 import org.hibernate.pretty.MessageHelper;
 import org.hibernate.sql.Alias;
 import org.hibernate.sql.SelectFragment;
@@ -100,6 +103,7 @@ import org.hibernate.sql.ordering.antlr.FormulaReference;
 import org.hibernate.sql.ordering.antlr.OrderByAliasResolver;
 import org.hibernate.sql.ordering.antlr.OrderByTranslation;
 import org.hibernate.sql.ordering.antlr.SqlValueReference;
+import org.hibernate.type.AnyType;
 import org.hibernate.type.AssociationType;
 import org.hibernate.type.CollectionType;
 import org.hibernate.type.CompositeType;
@@ -109,7 +113,7 @@ import org.jboss.logging.Logger;
 
 /**
  * Base implementation of the <tt>QueryableCollection</tt> interface.
- * 
+ *
  * @author Gavin King
  * @see BasicCollectionPersister
  * @see OneToManyPersister
@@ -149,6 +153,7 @@ public abstract class AbstractCollectionPersister
 	private final String nodeName;
 	private final String elementNodeName;
 	private final String indexNodeName;
+	private String mappedByProperty;
 
 	protected final boolean indexContainsFormula;
 	protected final boolean elementIsPureFormula;
@@ -266,6 +271,7 @@ public abstract class AbstractCollectionPersister
 		queryLoaderName = collection.getLoaderName();
 		nodeName = collection.getNodeName();
 		isMutable = collection.isMutable();
+		mappedByProperty = collection.getMappedByProperty();
 
 		Table table = collection.getCollectionTable();
 		fetchMode = collection.getElement().getFetchMode();
@@ -1642,14 +1648,14 @@ public abstract class AbstractCollectionPersister
 
 	protected abstract int doUpdateRows(Serializable key, PersistentCollection collection, SessionImplementor session)
 			throws HibernateException;
-	
+
 	public void processQueuedOps(PersistentCollection collection, Serializable key, SessionImplementor session)
 			throws HibernateException {
 		if ( collection.hasQueuedOperations() ) {
 			doProcessQueuedOps( collection, key, session );
 		}
 	}
-	
+
 	protected abstract void doProcessQueuedOps(PersistentCollection collection, Serializable key, SessionImplementor session)
 			throws HibernateException;
 
@@ -1825,12 +1831,12 @@ public abstract class AbstractCollectionPersister
 			}
 		}
 		catch ( SQLException sqle ) {
-			throw getFactory().getSQLExceptionHelper().convert(
+			throw getSQLExceptionHelper().convert(
 					sqle,
 					"could not retrieve collection size: " +
 							MessageHelper.collectionInfoString( this, key, getFactory() ),
 					sqlSelectSizeString
-					);
+			);
 		}
 	}
 
@@ -1867,12 +1873,12 @@ public abstract class AbstractCollectionPersister
 			}
 		}
 		catch ( SQLException sqle ) {
-			throw getFactory().getSQLExceptionHelper().convert(
+			throw getSQLExceptionHelper().convert(
 					sqle,
 					"could not check row existence: " +
 							MessageHelper.collectionInfoString( this, key, getFactory() ),
 					sqlSelectSizeString
-					);
+			);
 		}
 	}
 
@@ -1903,12 +1909,12 @@ public abstract class AbstractCollectionPersister
 			}
 		}
 		catch ( SQLException sqle ) {
-			throw getFactory().getSQLExceptionHelper().convert(
+			throw getSQLExceptionHelper().convert(
 					sqle,
 					"could not read row: " +
 							MessageHelper.collectionInfoString( this, key, getFactory() ),
 					sqlSelectSizeString
-					);
+			);
 		}
 	}
 
@@ -1923,7 +1929,7 @@ public abstract class AbstractCollectionPersister
 	/**
 	 * Intended for internal use only. In fact really only currently used from
 	 * test suite for assertion purposes.
-	 * 
+	 *
 	 * @return The default collection initializer for this persister/collection.
 	 */
 	public CollectionInitializer getInitializer() {
@@ -1932,6 +1938,10 @@ public abstract class AbstractCollectionPersister
 
 	public int getBatchSize() {
 		return batchSize;
+	}
+
+	public String getMappedByProperty() {
+		return mappedByProperty;
 	}
 
 	private class StandardOrderByAliasResolver implements OrderByAliasResolver {
@@ -1952,7 +1962,7 @@ public abstract class AbstractCollectionPersister
 			}
 		}
 	}
-	
+
 	public abstract FilterAliasGenerator getFilterAliasGenerator(final String rootAlias);
 
 	// ColectionDefinition impl ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1992,8 +2002,38 @@ public abstract class AbstractCollectionPersister
 				if ( ! getType().isComponentType() ) {
 					throw new IllegalStateException( "Cannot treat entity collection index type as composite" );
 				}
-				// todo : implement
-				throw new NotYetImplementedException();
+				return new CompositeCollectionElementDefinition() {
+					@Override
+					public String getName() {
+						return "index";
+					}
+
+					@Override
+					public CompositeType getType() {
+						return (CompositeType) getIndexType();
+					}
+
+					@Override
+					public boolean isNullable() {
+						return false;
+					}
+
+					@Override
+					public AttributeSource getSource() {
+						// TODO: what if this is a collection w/in an encapsulated composition attribute?
+						// should return the encapsulated composition attribute instead???
+						return getOwnerEntityPersister();
+					}
+
+					@Override
+					public Iterable<AttributeDefinition> getAttributes() {
+						return CompositionSingularSubAttributesHelper.getCompositeCollectionIndexSubAttributes( this );
+					}
+					@Override
+					public CollectionDefinition getCollectionDefinition() {
+						return AbstractCollectionPersister.this;
+					}
+				};
 			}
 		};
 	}
@@ -2012,9 +2052,18 @@ public abstract class AbstractCollectionPersister
 			}
 
 			@Override
+			public AnyMappingDefinition toAnyMappingDefinition() {
+				final Type type = getType();
+				if ( ! type.isAnyType() ) {
+					throw new WalkingException( "Cannot treat collection element type as ManyToAny" );
+				}
+				return new StandardAnyTypeDefinition( (AnyType) type, isLazy() || isExtraLazy() );
+			}
+
+			@Override
 			public EntityDefinition toEntityDefinition() {
 				if ( getType().isComponentType() ) {
-					throw new IllegalStateException( "Cannot treat composite collection element type as entity" );
+					throw new WalkingException( "Cannot treat composite collection element type as entity" );
 				}
 				return getElementPersister();
 			}
@@ -2023,7 +2072,7 @@ public abstract class AbstractCollectionPersister
 			public CompositeCollectionElementDefinition toCompositeElementDefinition() {
 
 				if ( ! getType().isComponentType() ) {
-					throw new IllegalStateException( "Cannot treat entity collection element type as composite" );
+					throw new WalkingException( "Cannot treat entity collection element type as composite" );
 				}
 
 				return new CompositeCollectionElementDefinition() {
@@ -2033,8 +2082,13 @@ public abstract class AbstractCollectionPersister
 					}
 
 					@Override
-					public Type getType() {
-						return getElementType();
+					public CompositeType getType() {
+						return (CompositeType) getElementType();
+					}
+
+					@Override
+					public boolean isNullable() {
+						return false;
 					}
 
 					@Override

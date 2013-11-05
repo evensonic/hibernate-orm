@@ -137,7 +137,7 @@ public class TransactionCoordinatorImpl implements TransactionCoordinator {
 
 		final boolean success = JtaStatusHelper.isCommitted( status );
 
-		if (sessionFactory().getStatistics().isStatisticsEnabled()) {
+		if ( sessionFactory().getStatistics().isStatisticsEnabled() ) {
 			transactionEnvironment.getStatisticsImplementor().endTransaction( success );
 		}
 
@@ -344,6 +344,11 @@ public class TransactionCoordinatorImpl implements TransactionCoordinator {
 			observer.afterCompletion( successful, hibernateTransaction );
 		}
 		synchronizationRegistry.notifySynchronizationsAfterTransactionCompletion( status );
+	}
+
+	@Override
+	public boolean isActive() {
+		return !sessionFactory().isClosed();
 	}
 
 

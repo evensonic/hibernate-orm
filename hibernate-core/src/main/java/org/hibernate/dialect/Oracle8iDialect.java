@@ -27,9 +27,11 @@ import java.sql.CallableStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Types;
+import java.util.List;
 
 import org.hibernate.JDBCException;
 import org.hibernate.QueryTimeoutException;
+import org.hibernate.annotations.common.util.StringHelper;
 import org.hibernate.cfg.Environment;
 import org.hibernate.dialect.function.NoArgSQLFunction;
 import org.hibernate.dialect.function.NvlFunction;
@@ -43,6 +45,8 @@ import org.hibernate.exception.spi.SQLExceptionConversionDelegate;
 import org.hibernate.exception.spi.TemplatedViolatedConstraintNameExtracter;
 import org.hibernate.exception.spi.ViolatedConstraintNameExtracter;
 import org.hibernate.internal.util.JdbcExceptionHelper;
+import org.hibernate.procedure.internal.StandardCallableStatementSupport;
+import org.hibernate.procedure.spi.CallableStatementSupport;
 import org.hibernate.sql.CaseFragment;
 import org.hibernate.sql.DecodeCaseFragment;
 import org.hibernate.sql.JoinFragment;
@@ -581,5 +585,39 @@ public class Oracle8iDialect extends Dialect {
 	@Override
 	public String getNotExpression( String expression ) {
 		return "not (" + expression + ")";
+	}
+	
+	@Override
+	public String getQueryHintString(String sql, List<String> hints) {
+		final String hint = StringHelper.join( ", ", hints.iterator() );
+		
+		if ( StringHelper.isEmpty( hint ) ) {
+			return sql;
+		}
+
+		final int pos = sql.indexOf( "select" );
+		if ( pos > -1 ) {
+			final StringBuilder buffer = new StringBuilder( sql.length() + hint.length() + 8 );
+			if ( pos > 0 ) {
+				buffer.append( sql.substring( 0, pos ) );
+			}
+			buffer.append( "select /*+ " ).append( hint ).append( " */" )
+					.append( sql.substring( pos + "select".length() ) );
+			sql = buffer.toString();
+		}
+
+		return sql;
+	}
+	
+	@Override
+	public int getMaxAliasLength() {
+		// Oracle's max identifier length is 30, but Hibernate needs to add "uniqueing info" so we account for that,
+		return 20;
+	}
+
+	@Override
+	public CallableStatementSupport getCallableStatementSupport() {
+		// Oracle supports returning cursors
+		return StandardCallableStatementSupport.REF_CURSOR_INSTANCE;
 	}
 }

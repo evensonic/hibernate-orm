@@ -54,6 +54,8 @@ import org.hibernate.WrongClassException;
 import org.hibernate.cache.spi.FilterKey;
 import org.hibernate.cache.spi.QueryCache;
 import org.hibernate.cache.spi.QueryKey;
+import org.hibernate.cache.spi.entry.CacheEntry;
+import org.hibernate.cache.spi.entry.ReferenceCacheEntryImpl;
 import org.hibernate.collection.spi.PersistentCollection;
 import org.hibernate.dialect.Dialect;
 import org.hibernate.dialect.pagination.LimitHandler;
@@ -115,8 +117,11 @@ public abstract class Loader {
 	private final SessionFactoryImplementor factory;
 	private ColumnNameCache columnNameCache;
 
+	private final boolean referenceCachingEnabled;
+
 	public Loader(SessionFactoryImplementor factory) {
 		this.factory = factory;
+		this.referenceCachingEnabled = factory.getSettings().isDirectReferenceCacheEntriesEnabled();
 	}
 
 	/**
@@ -242,6 +247,13 @@ public abstract class Loader {
 			Dialect dialect,
 			List<AfterLoadAction> afterLoadActions) throws HibernateException {
 		sql = applyLocks( sql, parameters, dialect, afterLoadActions );
+		
+		// Keep this here, rather than moving to Select.  Some Dialects may need the hint to be appended to the very
+		// end or beginning of the finalized SQL statement, so wait until everything is processed.
+		if ( parameters.getQueryHints() != null && parameters.getQueryHints().size() > 0 ) {
+			sql = dialect.getQueryHintString( sql, parameters.getQueryHints() );
+		}
+		
 		return getFactory().getSettings().isCommentsEnabled()
 				? prependComment( sql, parameters )
 				: sql;
@@ -1532,7 +1544,7 @@ public abstract class Loader {
 	        final Loadable persister,
 	        final EntityKey key,
 	        final Object object,
-	        final LockMode lockMode,
+	        final LockMode requestedLockMode,
 	        final SessionImplementor session)
 			throws HibernateException, SQLException {
 		if ( !persister.isInstance( object ) ) {
@@ -1540,26 +1552,22 @@ public abstract class Loader {
 					"loaded object was of wrong class " + object.getClass(),
 					key.getIdentifier(),
 					persister.getEntityName()
-				);
+			);
 		}
 
-		if ( LockMode.NONE != lockMode && upgradeLocks() ) { //no point doing this if NONE was requested
-
-			final boolean isVersionCheckNeeded = persister.isVersioned() &&
-					session.getPersistenceContext().getEntry(object)
-							.getLockMode().lessThan( lockMode );
-			// we don't need to worry about existing version being uninitialized
-			// because this block isn't called by a re-entrant load (re-entrant
-			// loads _always_ have lock mode NONE)
-			if (isVersionCheckNeeded) {
+		if ( LockMode.NONE != requestedLockMode && upgradeLocks() ) { //no point doing this if NONE was requested
+			final EntityEntry entry = session.getPersistenceContext().getEntry( object );
+			if ( entry.getLockMode().lessThan( requestedLockMode ) ) {
 				//we only check the version when _upgrading_ lock modes
-				checkVersion( i, persister, key.getIdentifier(), object, rs, session );
+				if ( persister.isVersioned() ) {
+					checkVersion( i, persister, key.getIdentifier(), object, rs, session );
+				}
 				//we need to upgrade the lock mode to the mode requested
-				session.getPersistenceContext().getEntry(object)
-						.setLockMode(lockMode);
+				entry.setLockMode( requestedLockMode );
 			}
 		}
 	}
+
 
 	/**
 	 * The entity instance is not in the session cache
@@ -1583,6 +1591,22 @@ public abstract class Loader {
 				key.getIdentifier(),
 				session
 		);
+
+		// see if the entity defines reference caching, and if so use the cached reference (if one).
+		if ( persister.canUseReferenceCacheEntries() ) {
+			final Object cachedEntry = persister.getCacheAccessStrategy().get(
+					session.generateCacheKey(
+							key.getIdentifier(),
+							persister.getEntityMetamodel().getEntityType(),
+							key.getEntityName()
+					),
+					session.getTimestamp()
+			);
+			if ( cachedEntry != null ) {
+				CacheEntry entry = (CacheEntry) persister.getCacheEntryStructure().destructure( cachedEntry, factory );
+				return ( (ReferenceCacheEntryImpl) entry ).getReference();
+			}
+		}
 
 		final Object object;
 		if ( optionalObjectKey != null && key.equals( optionalObjectKey ) ) {
@@ -1844,7 +1868,7 @@ public abstract class Loader {
 	 * limit parameters.
 	 */
 	protected final PreparedStatement prepareQueryStatement(
-	        final String sql,
+	        String sql,
 	        final QueryParameters queryParameters,
 	        final LimitHandler limitHandler,
 	        final boolean scroll,
@@ -1856,7 +1880,7 @@ public abstract class Loader {
 		boolean useLimitOffset = hasFirstRow && useLimit && limitHandler.supportsLimitOffset();
 		boolean callable = queryParameters.isCallable();
 		final ScrollMode scrollMode = getScrollMode( scroll, hasFirstRow, useLimitOffset, queryParameters );
-
+		
 		PreparedStatement st = session.getTransactionCoordinator().getJdbcCoordinator().getStatementPreparer().prepareQueryStatement(
 				sql,
 				callable,
@@ -2165,7 +2189,7 @@ public abstract class Loader {
 		catch ( SQLException sqle ) {
 			throw factory.getSQLExceptionHelper().convert(
 			        sqle,
-			        "could not collection element by index",
+			        "could not load collection element by index",
 			        getSQLString()
 				);
 		}
@@ -2593,7 +2617,9 @@ public abstract class Loader {
 		if ( stats ) startTime = System.currentTimeMillis();
 
 		try {
-			final SqlStatementWrapper wrapper = executeQueryStatement( queryParameters, true, Collections.<AfterLoadAction>emptyList(), session );
+			// Don't use Collections#emptyList() here -- follow on locking potentially adds AfterLoadActions,
+			// so the list cannot be immutable.
+			final SqlStatementWrapper wrapper = executeQueryStatement( queryParameters, true, new ArrayList<AfterLoadAction>(), session );
 			final ResultSet rs = wrapper.getResultSet();
 			final PreparedStatement st = (PreparedStatement) wrapper.getStatement();
 

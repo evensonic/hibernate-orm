@@ -35,6 +35,7 @@ import java.sql.Types;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
@@ -44,6 +45,7 @@ import org.hibernate.LockMode;
 import org.hibernate.LockOptions;
 import org.hibernate.MappingException;
 import org.hibernate.NullPrecedence;
+import org.hibernate.ScrollMode;
 import org.hibernate.cfg.Environment;
 import org.hibernate.dialect.function.CastFunction;
 import org.hibernate.dialect.function.SQLFunction;
@@ -79,6 +81,8 @@ import org.hibernate.internal.util.io.StreamCopier;
 import org.hibernate.mapping.Column;
 import org.hibernate.metamodel.spi.TypeContributions;
 import org.hibernate.persister.entity.Lockable;
+import org.hibernate.procedure.internal.StandardCallableStatementSupport;
+import org.hibernate.procedure.spi.CallableStatementSupport;
 import org.hibernate.service.ServiceRegistry;
 import org.hibernate.sql.ANSICaseFragment;
 import org.hibernate.sql.ANSIJoinFragment;
@@ -1890,6 +1894,11 @@ public abstract class Dialect implements ConversionContext {
 
 	/**
 	 * What is the maximum length Hibernate can use for generated aliases?
+	 * <p/>
+	 * The maximum here should account for the fact that Hibernate often needs to append "uniqueing" information
+	 * to the end of generated aliases.  That "uniqueing" information will be added to the end of a identifier
+	 * generated to the length specified here; so be sure to leave some room (generally speaking 5 positions will
+	 * suffice).
 	 *
 	 * @return The maximum length.
 	 */
@@ -2014,6 +2023,15 @@ public abstract class Dialect implements ConversionContext {
 		throw new UnsupportedOperationException( "No add column syntax supported by " + getClass().getName() );
 	}
 
+	/**
+	 * The syntax for the suffix used to add a column to a table (optional).
+	 *
+	 * @return The suffix "add column" fragment.
+	 */
+	public String getAddColumnSuffixString() {
+		return "";
+	}
+
 	public String getDropForeignKeyString() {
 		return " drop constraint ";
 	}
@@ -2045,7 +2063,7 @@ public abstract class Dialect implements ConversionContext {
 		final StringBuilder res = new StringBuilder( 30 );
 
 		res.append( " add constraint " )
-				.append( constraintName )
+				.append( quote( constraintName ) )
 				.append( " foreign key (" )
 				.append( StringHelper.join( ", ", foreignKey ) )
 				.append( ") references " )
@@ -2658,4 +2676,41 @@ public abstract class Dialect implements ConversionContext {
 	public boolean supportsNotNullUnique() {
 		return true;
 	}
+	
+	/**
+	 * Apply a hint to the query.  The entire query is provided, allowing the Dialect full control over the placement
+	 * and syntax of the hint.  By default, ignore the hint and simply return the query.
+	 * 
+	 * @param query The query to which to apply the hint.
+	 * @param hints The  hints to apply
+	 * @return The modified SQL
+	 */
+	public String getQueryHintString(String query, List<String> hints) {
+		return query;
+	}
+	
+	/**
+	 * Certain dialects support a subset of ScrollModes.  Provide a default to be used by Criteria and Query.
+	 * 
+	 * @return ScrollMode
+	 */
+	public ScrollMode defaultScrollMode() {
+		return ScrollMode.SCROLL_INSENSITIVE;
+	}
+	
+	/**
+	 * Does this dialect support tuples in subqueries?  Ex:
+	 * delete from Table1 where (col1, col2) in (select col1, col2 from Table2)
+	 * 
+	 * @return boolean
+	 */
+	public boolean supportsTuplesInSubqueries() {
+		return true;
+	}
+
+	public CallableStatementSupport getCallableStatementSupport() {
+		// most databases do not support returning cursors (ref_cursor)...
+		return StandardCallableStatementSupport.NO_REF_CURSOR_INSTANCE;
+	}
+
 }

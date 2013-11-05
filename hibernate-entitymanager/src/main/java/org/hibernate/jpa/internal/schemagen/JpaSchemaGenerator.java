@@ -30,7 +30,6 @@ import java.io.Writer;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.sql.Connection;
-import java.sql.DatabaseMetaData;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -43,12 +42,13 @@ import org.jboss.logging.Logger;
 
 import org.hibernate.HibernateException;
 import org.hibernate.boot.registry.classloading.spi.ClassLoaderService;
-import org.hibernate.boot.registry.selector.spi.StrategySelector;
 import org.hibernate.cfg.Configuration;
 import org.hibernate.dialect.Dialect;
 import org.hibernate.engine.jdbc.connections.spi.ConnectionProvider;
-import org.hibernate.engine.jdbc.dialect.spi.DatabaseInfoDialectResolver;
-import org.hibernate.engine.jdbc.dialect.spi.DialectResolver;
+import org.hibernate.engine.jdbc.dialect.spi.DatabaseMetaDataDialectResolutionInfoAdapter;
+import org.hibernate.engine.jdbc.dialect.spi.DialectFactory;
+import org.hibernate.engine.jdbc.dialect.spi.DialectResolutionInfo;
+import org.hibernate.engine.jdbc.dialect.spi.DialectResolutionInfoSource;
 import org.hibernate.engine.jdbc.spi.JdbcConnectionAccess;
 import org.hibernate.engine.jdbc.spi.JdbcServices;
 import org.hibernate.engine.jdbc.spi.SqlStatementLogger;
@@ -98,7 +98,7 @@ public class JpaSchemaGenerator {
 		/**
 		 * Perform the generation, as indicated by the settings
 		 *
-		 * @param hibernateConfiguration
+		 * @param hibernateConfiguration The hibernate configuration
 		 */
 		public void execute(Configuration hibernateConfiguration) {
 			// First, determine the actions (if any) to be performed ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -112,6 +112,7 @@ public class JpaSchemaGenerator {
 
 			if ( databaseAction == SchemaGenAction.NONE && scriptsAction == SchemaGenAction.NONE ) {
 				// no actions needed
+				log.debug( "No actions specified; doing nothing" );
 				return;
 			}
 
@@ -404,48 +405,12 @@ public class JpaSchemaGenerator {
 		);
 
 		if ( providedConnection != null ) {
-			return new JdbcConnectionContext(
-					new JdbcConnectionAccess() {
-						@Override
-						public Connection obtainConnection() throws SQLException {
-							return providedConnection;
-						}
-
-						@Override
-						public void releaseConnection(Connection connection) throws SQLException {
-							// do nothing
-						}
-
-						@Override
-						public boolean supportsAggressiveRelease() {
-							return false;
-						}
-					},
-					sqlStatementLogger
-			);
+			return new JdbcConnectionContext( new ProvidedJdbcConnectionAccess( providedConnection ), sqlStatementLogger );
 		}
 
 		final ConnectionProvider connectionProvider = serviceRegistry.getService( ConnectionProvider.class );
 		if ( connectionProvider != null ) {
-			return new JdbcConnectionContext(
-					new JdbcConnectionAccess() {
-						@Override
-						public Connection obtainConnection() throws SQLException {
-							return connectionProvider.getConnection();
-						}
-
-						@Override
-						public void releaseConnection(Connection connection) throws SQLException {
-							connectionProvider.closeConnection( connection );
-						}
-
-						@Override
-						public boolean supportsAggressiveRelease() {
-							return connectionProvider.supportsAggressiveRelease();
-						}
-					},
-					sqlStatementLogger
-			);
+			return new JdbcConnectionContext( new ConnectionProviderJdbcConnectionAccess( connectionProvider ), sqlStatementLogger );
 		}
 
 		// otherwise, return a no-op impl
@@ -458,97 +423,75 @@ public class JpaSchemaGenerator {
 	}
 
 	private static Dialect determineDialect(
-			JdbcConnectionContext jdbcConnectionContext,
-			Configuration hibernateConfiguration,
+			final JdbcConnectionContext jdbcConnectionContext,
+			final Configuration hibernateConfiguration,
 			ServiceRegistry serviceRegistry) {
-		final String explicitDbName = hibernateConfiguration.getProperty( AvailableSettings.SCHEMA_GEN_DB_NAME );
-		final String explicitDbMajor = hibernateConfiguration.getProperty( AvailableSettings.SCHEMA_GEN_DB_MAJOR_VERSION );
-		final String explicitDbMinor = hibernateConfiguration.getProperty( AvailableSettings.SCHEMA_GEN_DB_MINOR_VERSION );
 
-		if ( StringHelper.isNotEmpty( explicitDbName ) ) {
-			serviceRegistry.getService( DatabaseInfoDialectResolver.class ).resolve(
-					new DatabaseInfoDialectResolver.DatabaseInfo() {
-						@Override
-						public String getDatabaseName() {
-							return explicitDbName;
+		return serviceRegistry.getService( DialectFactory.class ).buildDialect(
+				hibernateConfiguration.getProperties(),
+				new DialectResolutionInfoSource() {
+					@Override
+					public DialectResolutionInfo getDialectResolutionInfo() {
+
+						// if the application supplied database name/version info, use that
+						final String explicitDbName = hibernateConfiguration.getProperty( AvailableSettings.SCHEMA_GEN_DB_NAME );
+						if ( StringHelper.isNotEmpty( explicitDbName ) ) {
+							final String explicitDbMajor = hibernateConfiguration.getProperty( AvailableSettings.SCHEMA_GEN_DB_MAJOR_VERSION );
+							final String explicitDbMinor = hibernateConfiguration.getProperty( AvailableSettings.SCHEMA_GEN_DB_MINOR_VERSION );
+
+							return new DialectResolutionInfo() {
+								@Override
+								public String getDatabaseName() {
+									return explicitDbName;
+								}
+
+								@Override
+								public int getDatabaseMajorVersion() {
+									return StringHelper.isEmpty( explicitDbMajor )
+											? NO_VERSION
+											: Integer.parseInt( explicitDbMajor );
+								}
+
+								@Override
+								public int getDatabaseMinorVersion() {
+									return StringHelper.isEmpty( explicitDbMinor )
+											? NO_VERSION
+											: Integer.parseInt( explicitDbMinor );
+								}
+
+								@Override
+								public String getDriverName() {
+									return null;
+								}
+
+								@Override
+								public int getDriverMajorVersion() {
+									return NO_VERSION;
+								}
+
+								@Override
+								public int getDriverMinorVersion() {
+									return NO_VERSION;
+								}
+							};
 						}
 
-						@Override
-						public int getDatabaseMajorVersion() {
-							return StringHelper.isEmpty( explicitDbMajor )
-									? NO_VERSION
-									: Integer.parseInt( explicitDbMajor );
+						// otherwise look at the connection, if provided (if not provided the call to
+						// getJdbcConnection will already throw a meaningful exception)
+						try {
+							return new DatabaseMetaDataDialectResolutionInfoAdapter(
+									jdbcConnectionContext.getJdbcConnection().getMetaData()
+							);
 						}
-
-						@Override
-						public int getDatabaseMinorVersion() {
-							return StringHelper.isEmpty( explicitDbMinor )
-									? NO_VERSION
-									: Integer.parseInt( explicitDbMinor );
+						catch ( SQLException sqlException ) {
+							throw new HibernateException(
+									"Unable to access java.sql.DatabaseMetaData to determine appropriate Dialect to use",
+									sqlException
+							);
 						}
 					}
-			);
-		}
-
-		return buildDialect( hibernateConfiguration, serviceRegistry, jdbcConnectionContext );
-	}
-
-	private static Dialect buildDialect(
-			Configuration hibernateConfiguration,
-			ServiceRegistry serviceRegistry,
-			JdbcConnectionContext jdbcConnectionContext) {
-		// todo : a lot of copy/paste from the DialectFactory impl...
-		final String dialectName = hibernateConfiguration.getProperty( org.hibernate.cfg.AvailableSettings.DIALECT );
-		if ( dialectName != null ) {
-			return constructDialect( dialectName, serviceRegistry );
-		}
-		else {
-			return determineDialectBasedOnJdbcMetadata( jdbcConnectionContext, serviceRegistry );
-		}
-	}
-
-	private static Dialect constructDialect(String dialectName, ServiceRegistry serviceRegistry) {
-		final Dialect dialect;
-		final StrategySelector strategySelector = serviceRegistry.getService( StrategySelector.class );
-		try {
-			dialect = strategySelector.resolveStrategy( Dialect.class, dialectName );
-			if ( dialect == null ) {
-				throw new HibernateException( "Unable to construct requested dialect [" + dialectName + "]" );
-			}
-			return dialect;
-		}
-		catch (HibernateException e) {
-			throw e;
-		}
-		catch (Exception e) {
-			throw new HibernateException( "Unable to construct requested dialect [" + dialectName+ "]", e );
-		}
-	}
-
-	private static Dialect determineDialectBasedOnJdbcMetadata(
-			JdbcConnectionContext jdbcConnectionContext,
-			ServiceRegistry serviceRegistry) {
-		final DialectResolver dialectResolver = serviceRegistry.getService( DialectResolver.class );
-		try {
-			final DatabaseMetaData databaseMetaData = jdbcConnectionContext.getJdbcConnection().getMetaData();
-			final Dialect dialect = dialectResolver.resolveDialect( databaseMetaData );
-
-			if ( dialect == null ) {
-				throw new HibernateException(
-						"Unable to determine Dialect to use [name=" + databaseMetaData.getDatabaseProductName() +
-								", majorVersion=" + databaseMetaData.getDatabaseMajorVersion() +
-								"]; user must register resolver or explicitly set 'hibernate.dialect'"
-				);
-			}
-
-			return dialect;
-		}
-		catch ( SQLException sqlException ) {
-			throw new HibernateException(
-					"Unable to access java.sql.DatabaseMetaData to determine appropriate Dialect to use",
-					sqlException
-			);
-		}
+				}
+		);
 	}
 
 	private static void doGeneration(
@@ -672,4 +615,153 @@ public class JpaSchemaGenerator {
 		}
 	}
 
+
+	/**
+	 * Defines access to a JDBC Connection explicitly provided to us by the application
+	 */
+	private static class ProvidedJdbcConnectionAccess implements JdbcConnectionAccess {
+		private final Connection jdbcConnection;
+		private final boolean wasInitiallyAutoCommit;
+
+		private ProvidedJdbcConnectionAccess(Connection jdbcConnection) {
+			this.jdbcConnection = jdbcConnection;
+
+			boolean wasInitiallyAutoCommit;
+			try {
+				wasInitiallyAutoCommit = jdbcConnection.getAutoCommit();
+				if ( ! wasInitiallyAutoCommit ) {
+					try {
+						jdbcConnection.setAutoCommit( true );
+					}
+					catch (SQLException e) {
+						throw new PersistenceException(
+								String.format(
+										"Could not set provided connection [%s] to auto-commit mode" +
+												" (needed for schema generation)",
+										jdbcConnection
+								),
+								e
+						);
+					}
+				}
+			}
+			catch (SQLException ignore) {
+				wasInitiallyAutoCommit = false;
+			}
+
+			log.debugf( "wasInitiallyAutoCommit=%s", wasInitiallyAutoCommit );
+			this.wasInitiallyAutoCommit = wasInitiallyAutoCommit;
+		}
+
+		@Override
+		public Connection obtainConnection() throws SQLException {
+			return jdbcConnection;
+		}
+
+		@Override
+		public void releaseConnection(Connection connection) throws SQLException {
+			// NOTE : reset auto-commit, but *do not* close the Connection.  The application handed us this connection
+
+			if ( ! wasInitiallyAutoCommit ) {
+				try {
+					if ( jdbcConnection.getAutoCommit() ) {
+						jdbcConnection.setAutoCommit( false );
+					}
+				}
+				catch (SQLException e) {
+					log.info( "Was unable to reset JDBC connection to no longer be in auto-commit mode" );
+				}
+			}
+		}
+
+		@Override
+		public boolean supportsAggressiveRelease() {
+			return false;
+		}
+	}
+
+	/**
+	 * Defines access to a JDBC Connection through the defined ConnectionProvider
+	 */
+	private static class ConnectionProviderJdbcConnectionAccess implements JdbcConnectionAccess {
+		private final ConnectionProvider connectionProvider;
+		private final Connection jdbcConnection;
+		private final boolean wasInitiallyAutoCommit;
+
+		private ConnectionProviderJdbcConnectionAccess(ConnectionProvider connectionProvider) {
+			this.connectionProvider = connectionProvider;
+
+			try {
+				this.jdbcConnection = connectionProvider.getConnection();
+			}
+			catch (SQLException e) {
+				throw new PersistenceException( "Unable to obtain JDBC Connection", e );
+			}
+
+			boolean wasInitiallyAutoCommit;
+			try {
+				wasInitiallyAutoCommit = jdbcConnection.getAutoCommit();
+				if ( ! wasInitiallyAutoCommit ) {
+					try {
+						jdbcConnection.setAutoCommit( true );
+					}
+					catch (SQLException e) {
+						throw new PersistenceException(
+								String.format(
+										"Could not set provided connection [%s] to auto-commit mode" +
+												" (needed for schema generation)",
+										jdbcConnection
+								),
+								e
+						);
+					}
+				}
+			}
+			catch (SQLException ignore) {
+				wasInitiallyAutoCommit = false;
+			}
+
+			log.debugf( "wasInitiallyAutoCommit=%s", wasInitiallyAutoCommit );
+			this.wasInitiallyAutoCommit = wasInitiallyAutoCommit;
+		}
+
+		@Override
+		public Connection obtainConnection() throws SQLException {
+			return jdbcConnection;
+		}
+
+		@Override
+		public void releaseConnection(Connection connection) throws SQLException {
+			if ( connection != this.jdbcConnection ) {
+				throw new PersistenceException(
+						String.format(
+								"Connection [%s] passed back to %s was not the one obtained [%s] from it",
+								connection,
+								ConnectionProviderJdbcConnectionAccess.class.getName(),
+								jdbcConnection
+						)
+				);
+			}
+
+			// Reset auto-commit
+			if ( ! wasInitiallyAutoCommit ) {
+				try {
+					if ( jdbcConnection.getAutoCommit() ) {
+						jdbcConnection.setAutoCommit( false );
+					}
+				}
+				catch (SQLException e) {
+					log.info( "Was unable to reset JDBC connection to no longer be in auto-commit mode" );
+				}
+			}
+
+			// Release the connection
+			connectionProvider.closeConnection( jdbcConnection );
+		}
+
+		@Override
+		public boolean supportsAggressiveRelease() {
+			return false;
+		}
+	}
 }

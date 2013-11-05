@@ -153,6 +153,12 @@ public abstract class BaseCoreFunctionalTestCase extends BaseUnitTestCase {
 		if ( sessionFactory == null ) {
 			return;
 		}
+		try {
+			sessionFactory.close();
+		}
+		catch (Exception ignore) {
+		}
+
 		buildSessionFactory();
 	}
 
@@ -176,7 +182,7 @@ public abstract class BaseCoreFunctionalTestCase extends BaseUnitTestCase {
 		return cfg;
 	}
 
-	private Configuration constructAndConfigureConfiguration() {
+	protected Configuration constructAndConfigureConfiguration() {
 		Configuration cfg = constructConfiguration();
 		configure( cfg );
 		return cfg;
@@ -386,7 +392,7 @@ public abstract class BaseCoreFunctionalTestCase extends BaseUnitTestCase {
 
 	@AfterClassOnce
 	@SuppressWarnings( {"UnusedDeclaration"})
-	private void releaseSessionFactory() {
+	protected void releaseSessionFactory() {
 		if ( sessionFactory == null ) {
 			return;
 		}
@@ -435,11 +441,7 @@ public abstract class BaseCoreFunctionalTestCase extends BaseUnitTestCase {
 
 	protected void cleanupCache() {
 		if ( sessionFactory != null ) {
-			sessionFactory.getCache().evictCollectionRegions();
-			sessionFactory.getCache().evictDefaultQueryRegion();
-			sessionFactory.getCache().evictEntityRegions();
-			sessionFactory.getCache().evictQueryRegions();
-			sessionFactory.getCache().evictNaturalIdRegions();
+			sessionFactory.getCache().evictAllRegions();
 		}
 	}
 	

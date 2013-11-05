@@ -20,7 +20,7 @@
  */
 package org.hibernate.osgi;
 
-import java.util.List;
+import java.util.Collection;
 
 import org.hibernate.SessionFactory;
 import org.hibernate.boot.registry.BootstrapServiceRegistryBuilder;
@@ -29,12 +29,15 @@ import org.hibernate.boot.registry.selector.StrategyRegistrationProvider;
 import org.hibernate.cfg.AvailableSettings;
 import org.hibernate.cfg.Configuration;
 import org.hibernate.integrator.spi.Integrator;
+import org.hibernate.internal.CoreMessageLogger;
 import org.hibernate.metamodel.spi.TypeContributor;
 import org.hibernate.service.ServiceRegistry;
+import org.jboss.logging.Logger;
 import org.osgi.framework.Bundle;
 import org.osgi.framework.BundleContext;
 import org.osgi.framework.ServiceFactory;
 import org.osgi.framework.ServiceRegistration;
+import org.osgi.framework.wiring.BundleWiring;
 
 /**
  * Hibernate 4.2 and 4.3 still heavily rely on TCCL for ClassLoading.  Although
@@ -55,6 +58,9 @@ import org.osgi.framework.ServiceRegistration;
  * @author Tim Ward
  */
 public class OsgiSessionFactoryService implements ServiceFactory {
+	private static final CoreMessageLogger LOG = Logger.getMessageLogger(CoreMessageLogger.class,
+			OsgiSessionFactoryService.class.getName());
+	
 	private OsgiClassLoader osgiClassLoader;
 	private OsgiJtaPlatform osgiJtaPlatform;
 	private BundleContext context;
@@ -81,23 +87,37 @@ public class OsgiSessionFactoryService implements ServiceFactory {
 
 		final Configuration configuration = new Configuration();
 		configuration.getProperties().put( AvailableSettings.JTA_PLATFORM, osgiJtaPlatform );
-		configuration.configure();
+		
+		// Allow bundles to put the config file somewhere other than the root level.
+		final BundleWiring bundleWiring = (BundleWiring) requestingBundle.adapt( BundleWiring.class );
+		final Collection<String> cfgResources = bundleWiring.listResources( "/", "hibernate.cfg.xml",
+				BundleWiring.LISTRESOURCES_RECURSE );
+		if (cfgResources.size() == 0) {
+			configuration.configure();
+		}
+		else {
+			if (cfgResources.size() > 1) {
+				LOG.warn( "Multiple hibernate.cfg.xml files found in the persistence bundle.  Using the first one discovered." );
+			}
+			String cfgResource = "/" + cfgResources.iterator().next();
+			configuration.configure( cfgResource );
+		}
 
 		final BootstrapServiceRegistryBuilder builder = new BootstrapServiceRegistryBuilder();
 		builder.with( osgiClassLoader );
 
-		final List<Integrator> integrators = OsgiServiceUtil.getServiceImpls( Integrator.class, context );
+		final Integrator[] integrators = OsgiServiceUtil.getServiceImpls( Integrator.class, context );
 		for ( Integrator integrator : integrators ) {
 			builder.with( integrator );
 		}
 
-		final List<StrategyRegistrationProvider> strategyRegistrationProviders
+		final StrategyRegistrationProvider[] strategyRegistrationProviders
 				= OsgiServiceUtil.getServiceImpls( StrategyRegistrationProvider.class, context );
 		for ( StrategyRegistrationProvider strategyRegistrationProvider : strategyRegistrationProviders ) {
 			builder.withStrategySelectors( strategyRegistrationProvider );
 		}
         
-		final List<TypeContributor> typeContributors = OsgiServiceUtil.getServiceImpls( TypeContributor.class, context );
+		final TypeContributor[] typeContributors = OsgiServiceUtil.getServiceImpls( TypeContributor.class, context );
 		for ( TypeContributor typeContributor : typeContributors ) {
 			configuration.registerTypeContributor( typeContributor );
 		}

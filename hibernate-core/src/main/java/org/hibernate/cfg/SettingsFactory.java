@@ -325,6 +325,12 @@ public class SettingsFactory implements Serializable {
 		}
 		settings.setDirectReferenceCacheEntriesEnabled( useDirectReferenceCacheEntries );
 
+		boolean autoEvictCollectionCache = ConfigurationHelper.getBoolean( AvailableSettings.AUTO_EVICT_COLLECTION_CACHE, properties, false);
+		if ( debugEnabled ) {
+			LOG.debugf( "Automatic eviction of collection cache: %s", enabledDisabled(autoEvictCollectionCache) );
+		}
+		settings.setAutoEvictCollectionCache( autoEvictCollectionCache );
+
 		//Statistics and logging:
 
 		boolean useStatistics = ConfigurationHelper.getBoolean( AvailableSettings.GENERATE_STATISTICS, properties );
@@ -345,15 +351,18 @@ public class SettingsFactory implements Serializable {
 		if ( "validate".equals(autoSchemaExport) ) {
 			settings.setAutoValidateSchema( true );
 		}
-		if ( "update".equals(autoSchemaExport) ) {
+		else if ( "update".equals(autoSchemaExport) ) {
 			settings.setAutoUpdateSchema( true );
 		}
-		if ( "create".equals(autoSchemaExport) ) {
+		else if ( "create".equals(autoSchemaExport) ) {
 			settings.setAutoCreateSchema( true );
 		}
-		if ( "create-drop".equals( autoSchemaExport ) ) {
+		else if ( "create-drop".equals( autoSchemaExport ) ) {
 			settings.setAutoCreateSchema( true );
 			settings.setAutoDropSchema( true );
+		}
+		else if ( !StringHelper.isEmpty( autoSchemaExport ) ) {
+			LOG.warn( "Unrecognized value for \"hibernate.hbm2ddl.auto\": " + autoSchemaExport );
 		}
 		settings.setImportFiles( properties.getProperty( AvailableSettings.HBM2DDL_IMPORT_FILES ) );
 

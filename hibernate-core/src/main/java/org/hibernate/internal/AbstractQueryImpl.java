@@ -50,6 +50,7 @@ import org.hibernate.Query;
 import org.hibernate.QueryException;
 import org.hibernate.Session;
 import org.hibernate.dialect.Dialect;
+import org.hibernate.engine.query.spi.HQLQueryPlan;
 import org.hibernate.engine.query.spi.ParameterMetadata;
 import org.hibernate.engine.spi.QueryParameters;
 import org.hibernate.engine.spi.RowSelection;
@@ -101,6 +102,7 @@ public abstract class AbstractQueryImpl implements Query {
 	private boolean cacheable;
 	private String cacheRegion;
 	private String comment;
+	private final List<String> queryHints = new ArrayList<String>();
 	private FlushMode flushMode;
 	private CacheMode cacheMode;
 	private FlushMode sessionFlushMode;
@@ -108,6 +110,8 @@ public abstract class AbstractQueryImpl implements Query {
 	private Serializable collectionKey;
 	private Boolean readOnly;
 	private ResultTransformer resultTransformer;
+	
+	private HQLQueryPlan queryPlan;
 
 	public AbstractQueryImpl(
 			String queryString,
@@ -192,6 +196,12 @@ public abstract class AbstractQueryImpl implements Query {
 		this.comment = comment;
 		return this;
 	}
+	  
+	@Override
+	public Query addQueryHint(String queryHint) {
+		queryHints.add( queryHint );
+		return this;
+	} 
 
 	@Override
 	public Integer getFirstResult() {
@@ -848,8 +858,12 @@ public abstract class AbstractQueryImpl implements Query {
 		Iterator iter = vals.iterator();
 		int i = 0;
 		while ( iter.hasNext() ) {
-			String alias = ( isJpaPositionalParam ? 'x' + name : name ) + i++ + '_';
-			namedParamsCopy.put( alias, new TypedValue( type, iter.next() ) );
+			// Variable 'name' can represent a number or contain digit at the end. Surrounding it with
+			// characters to avoid ambiguous definition after concatenating value of 'i' counter.
+			String alias = ( isJpaPositionalParam ? 'x' + name : name ) + '_' + i++ + '_';
+			if ( namedParamsCopy.put( alias, new TypedValue( type, iter.next() ) ) != null ) {
+				throw new HibernateException( "Repeated usage of alias '" + alias + "' while expanding list parameter." );
+			}
 			list.append( ParserHelper.HQL_VARIABLE_PREFIX ).append( alias );
 			if ( iter.hasNext() ) {
 				list.append( ", " );
@@ -976,7 +990,7 @@ public abstract class AbstractQueryImpl implements Query {
 	}
 
 	public QueryParameters getQueryParameters(Map namedParams) {
-		return new QueryParameters(
+		QueryParameters queryParameters = new QueryParameters(
 				typeArray(),
 				valueArray(),
 				namedParams,
@@ -987,12 +1001,15 @@ public abstract class AbstractQueryImpl implements Query {
 				cacheable,
 				cacheRegion,
 				comment,
+				queryHints,
 				collectionKey == null ? null : new Serializable[] { collectionKey },
 				optionalObject,
 				optionalEntityName,
 				optionalId,
 				resultTransformer
 		);
+		queryParameters.setQueryPlan( queryPlan );
+		return queryParameters;
 	}
 	
 	protected void before() {
@@ -1015,5 +1032,13 @@ public abstract class AbstractQueryImpl implements Query {
 			getSession().setCacheMode(sessionCacheMode);
 			sessionCacheMode = null;
 		}
+	}
+
+	public HQLQueryPlan getQueryPlan() {
+		return queryPlan;
+	}
+
+	public void setQueryPlan(HQLQueryPlan queryPlan) {
+		this.queryPlan = queryPlan;
 	}
 }

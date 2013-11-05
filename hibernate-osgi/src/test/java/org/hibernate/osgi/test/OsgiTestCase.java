@@ -28,6 +28,7 @@ import org.hibernate.osgi.OsgiSessionFactoryService;
 import org.hibernate.osgi.test.result.OsgiTestResults;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.arquillian.junit.Arquillian;
+import org.jboss.arquillian.junit.InSequence;
 import org.jboss.arquillian.test.api.ArquillianResource;
 import org.jboss.osgi.metadata.OSGiManifestBuilder;
 import org.jboss.shrinkwrap.api.ShrinkWrap;
@@ -57,8 +58,8 @@ import org.osgi.framework.ServiceReference;
  * Regardless, this is the most "realistic" type of test anyway with a *real* client bundle.
  * 
  * IMPORTANT: There are a few maintenance points that need addressed for new versions of Hibernate and library upgrades:
- * 1.) Updated library versions in hibernate-osgi.gradle and src/test/resources/felix-framework.properties.  Some
- *     of this may be automatable with Gradle scripts.
+ * 1.) Updated library versions in hibernate-osgi.gradle.  libraries.gradle is used wherever possible.  But, there
+ *     may be a few manual updates needed.
  * 2.) If a new version of Felix is used, download and start it manually in the command line.  Run
  *     "felix:headers 0" to obtain the list of packages exported and used by the framework.  As of this writing,
  *     the framework has javax.transaction.* and javax.xml.stream.* in "uses" attributes.  I had to remove all instances
@@ -112,6 +113,7 @@ public class OsgiTestCase {
 	 * @throws Exception
 	 */
 	@Test
+	@InSequence(1)
 	public void testClientBundle() throws Exception {
 		commonTests();
 
@@ -136,6 +138,9 @@ public class OsgiTestCase {
 	 * @throws Exception
 	 */
 	@Test
+	// Arquillian does not restart the container between runs (afaik).  Without the ordering, the tests will
+	// intermittently fail since this method stops the bundle.
+	@InSequence(2)
 	public void testStop() throws Exception {
 		commonTests();
 

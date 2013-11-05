@@ -36,12 +36,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import antlr.ASTFactory;
-import antlr.RecognitionException;
-import antlr.SemanticException;
-import antlr.collections.AST;
-import org.jboss.logging.Logger;
-
 import org.hibernate.HibernateException;
 import org.hibernate.QueryException;
 import org.hibernate.engine.internal.JoinSequence;
@@ -104,6 +98,12 @@ import org.hibernate.type.DbTimestampType;
 import org.hibernate.type.Type;
 import org.hibernate.type.VersionType;
 import org.hibernate.usertype.UserVersionType;
+import org.jboss.logging.Logger;
+
+import antlr.ASTFactory;
+import antlr.RecognitionException;
+import antlr.SemanticException;
+import antlr.collections.AST;
 
 /**
  * Implements methods used by the HQL->SQL tree transform grammar (a.k.a. the second phase).
@@ -179,7 +179,6 @@ public class HqlSqlWalker extends HqlSqlBaseWalker implements ErrorReporter, Par
 		this.hqlParser = parser;
 		this.printer = new ASTPrinter( SqlTokenTypes.class );
 	}
-
 
 	// handle trace logging ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -378,6 +377,11 @@ public class HqlSqlWalker extends HqlSqlBaseWalker implements ErrorReporter, Par
 
 		final FromElement fromElement;
 		if ( dot.getDataType() != null && dot.getDataType().isComponentType() ) {
+			if ( dot.getDataType().isAnyType() ) {
+				throw new SemanticException( "An AnyType attribute cannot be join fetched" );
+				// ^^ because the discriminator (aka, the "meta columns") must be known to the SQL in
+				// 		a non-parameterized way.
+			}
 			FromElementFactory factory = new FromElementFactory(
 					getCurrentFromClause(),
 					dot.getLhs().getFromElement(),
@@ -400,16 +404,18 @@ public class HqlSqlWalker extends HqlSqlBaseWalker implements ErrorReporter, Par
 			}
 		}
 
-        if (LOG.isDebugEnabled()) LOG.debugf("createFromJoinElement() : %s",
-                                             getASTPrinter().showAsString(fromElement, "-- join tree --"));
+        if ( LOG.isDebugEnabled() ) {
+			LOG.debug("createFromJoinElement() : " + getASTPrinter().showAsString(fromElement, "-- join tree --") );
+		}
 	}
 
 	private void handleWithFragment(FromElement fromElement, AST hqlWithNode) throws SemanticException {
 		try {
 			withClause( hqlWithNode );
 			AST hqlSqlWithNode = returnAST;
-            if (LOG.isDebugEnabled()) LOG.debugf("handleWithFragment() : %s",
-                                                 getASTPrinter().showAsString(hqlSqlWithNode, "-- with clause --"));
+            if ( LOG.isDebugEnabled() ) {
+				LOG.debug( "handleWithFragment() : " + getASTPrinter().showAsString(hqlSqlWithNode, "-- with clause --") );
+			}
 			WithClauseVisitor visitor = new WithClauseVisitor( fromElement, queryTranslatorImpl );
 			NodeTraverser traverser = new NodeTraverser( visitor );
 			traverser.traverseDepthFirst( hqlSqlWithNode );
@@ -421,8 +427,9 @@ public class HqlSqlWalker extends HqlSqlBaseWalker implements ErrorReporter, Par
 			else {
 				FromElement referencedFromElement = visitor.getReferencedFromElement();
 				if ( referencedFromElement != fromElement ) {
-					throw new InvalidWithClauseException(
-							"with-clause expressions did not reference from-clause element to which the with-clause was associated",
+					LOG.warnf(
+							"with-clause expressions do not reference the from-clause element to which the " +
+									"with-clause was associated.  The query may not work as expected [%s]",
 							queryTranslatorImpl.getQueryString()
 					);
 				}
@@ -643,6 +650,12 @@ public class HqlSqlWalker extends HqlSqlBaseWalker implements ErrorReporter, Par
 
 			// Was there an explicit select expression?
 			boolean explicitSelect = select != null && select.getNumberOfChildren() > 0;
+			
+			// Add in the EntityGraph attribute nodes.
+			if (queryTranslatorImpl.getEntityGraphQueryHint() != null) {
+				qn.getFromClause().getFromElements().addAll(
+						queryTranslatorImpl.getEntityGraphQueryHint().toFromElements( qn.getFromClause(), this ) );
+			}
 
 			if ( !explicitSelect ) {
 				// No explicit select expression; render the id and properties
@@ -772,6 +785,20 @@ public class HqlSqlWalker extends HqlSqlBaseWalker implements ErrorReporter, Par
                 fragmentNode.setNextSibling( originalFirstSelectExprNode );
                 // finally, prepend the id column name(s) to the insert-spec
                 insertStatement.getIntoClause().prependIdColumnSpec();
+			}
+		}
+
+		if ( sessionFactoryHelper.getFactory().getDialect().supportsParametersInInsertSelect() ) {
+			AST child = selectClause.getFirstChild();
+			int i = 0;
+			while(child != null) {
+				if(child instanceof ParameterNode) {
+					// infer the parameter type from the type listed in the INSERT INTO clause
+					((ParameterNode)child).setExpectedType(insertStatement.getIntoClause()
+							.getInsertionTypes()[selectClause.getParameterPositions().get(i)]);
+					i++;
+				}
+				child = child.getNextSibling();
 			}
 		}
 

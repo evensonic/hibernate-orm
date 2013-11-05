@@ -108,7 +108,7 @@ public class PersistenceXmlParser {
 	}
 
 	private List<ParsedPersistenceXmlDescriptor> parsePersistenceXml(URL xmlUrl, Map integration) {
-		LOG.tracef( "Attempting to parse persistence.xml file : %s" + xmlUrl.toExternalForm() );
+		LOG.tracef( "Attempting to parse persistence.xml file : %s", xmlUrl.toExternalForm() );
 
 		final Document doc = loadUrl( xmlUrl );
 		final Element top = doc.getDocumentElement();
@@ -217,7 +217,7 @@ public class PersistenceXmlParser {
 					persistenceUnit.addJarFileUrl( ArchiveHelper.getURLFromPath( extractContent( element ) ) );
 				}
 				else if ( tag.equals( "exclude-unlisted-classes" ) ) {
-					persistenceUnit.setExcludeUnlistedClasses( true );
+					persistenceUnit.setExcludeUnlistedClasses( extractBooleanContent(element, true) );
 				}
 				else if ( tag.equals( "delimited-identifiers" ) ) {
 					persistenceUnit.setUseQuotedIdentifiers( true );
@@ -268,6 +268,14 @@ public class PersistenceXmlParser {
 			}
 		}
 		return result.toString().trim();
+	}
+
+	private static boolean extractBooleanContent(Element element, boolean defaultBool) {
+		String content = extractContent( element );
+		if (content != null && content.length() > 0) {
+			return Boolean.valueOf(content);
+		}
+		return defaultBool;
 	}
 
 	private static PersistenceUnitTransactionType parseTransactionType(String value) {

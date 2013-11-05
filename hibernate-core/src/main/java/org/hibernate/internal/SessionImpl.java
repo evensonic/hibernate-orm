@@ -109,6 +109,8 @@ import org.hibernate.event.service.spi.EventListenerGroup;
 import org.hibernate.event.service.spi.EventListenerRegistry;
 import org.hibernate.event.spi.AutoFlushEvent;
 import org.hibernate.event.spi.AutoFlushEventListener;
+import org.hibernate.event.spi.ClearEvent;
+import org.hibernate.event.spi.ClearEventListener;
 import org.hibernate.event.spi.DeleteEvent;
 import org.hibernate.event.spi.DeleteEventListener;
 import org.hibernate.event.spi.DirtyCheckEvent;
@@ -332,6 +334,11 @@ public final class SessionImpl extends AbstractSessionImpl implements EventSourc
 	private void internalClear() {
 		persistenceContext.clear();
 		actionQueue.clear();
+
+		final ClearEvent event = new ClearEvent( this );
+		for ( ClearEventListener listener : listeners( EventType.CLEAR ) ) {
+			listener.onClear( event );
+		}
 	}
 
 	public long getTimestamp() {
@@ -625,14 +632,14 @@ public final class SessionImpl extends AbstractSessionImpl implements EventSourc
 		LOG.trace( "after transaction completion" );
 		persistenceContext.afterTransactionCompletion();
 		actionQueue.afterTransactionCompletion( successful );
-		if ( hibernateTransaction != null ) {
-			try {
-				interceptor.afterTransactionCompletion( hibernateTransaction );
-			}
-			catch (Throwable t) {
-				LOG.exceptionInAfterTransactionCompletionInterceptor( t );
-			}
+
+		try {
+			interceptor.afterTransactionCompletion( hibernateTransaction );
 		}
+		catch (Throwable t) {
+			LOG.exceptionInAfterTransactionCompletionInterceptor( t );
+		}
+
 		if ( autoClear ) {
 			internalClear();
 		}
@@ -950,6 +957,12 @@ public final class SessionImpl extends AbstractSessionImpl implements EventSourc
 	public void delete(String entityName, Object object, boolean isCascadeDeleteEnabled, Set transientEntities) throws HibernateException {
 		fireDelete( new DeleteEvent( entityName, object, isCascadeDeleteEnabled, this ), transientEntities );
 	}
+	
+	// TODO: The removeOrphan concept is a temporary "hack" for HHH-6484.  This should be removed once action/task
+	// ordering is improved.
+	public void removeOrphanBeforeUpdates(String entityName, Object child) {
+		fireDelete( new DeleteEvent( entityName, child, false, true, this ) );
+	}
 
 	private void fireDelete(DeleteEvent event) {
 		errorIfClosed();
@@ -1128,8 +1141,8 @@ public final class SessionImpl extends AbstractSessionImpl implements EventSourc
 		fireRefresh( new RefreshEvent( entityName, object, lockOptions, this ) );
 	}
 
-	public void refresh(Object object, Map refreshedAlready) throws HibernateException {
-		fireRefresh( refreshedAlready, new RefreshEvent( object, this ) );
+	public void refresh(String entityName, Object object, Map refreshedAlready) throws HibernateException {
+		fireRefresh( refreshedAlready, new RefreshEvent( entityName, object, this ) );
 	}
 
 	private void fireRefresh(RefreshEvent event) {
@@ -1259,7 +1272,12 @@ public final class SessionImpl extends AbstractSessionImpl implements EventSourc
 		errorIfClosed();
 		checkTransactionSynchStatus();
 		queryParameters.validateParameters();
-		HQLQueryPlan plan = getHQLQueryPlan( query, false );
+		
+		HQLQueryPlan plan = queryParameters.getQueryPlan();
+		if (plan == null) {
+			plan = getHQLQueryPlan( query, false );
+		}
+		
 		autoFlushIfRequired( plan.getQuerySpaces() );
 
 		List results = Collections.EMPTY_LIST;

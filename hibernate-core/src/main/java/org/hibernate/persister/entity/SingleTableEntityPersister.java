@@ -1024,8 +1024,7 @@ public class SingleTableEntityPersister extends AbstractEntityPersister {
 		return qualifiedTableNames[ propertyTableNumbers[index] ];
 	}
 	
-	public void postInstantiate() {
-		super.postInstantiate();
+	protected void doPostInstantiate() {
 		if (hasSequentialSelects) {
 			String[] entityNames = getSubclassClosure();
 			for ( int i=1; i<entityNames.length; i++ ) {
