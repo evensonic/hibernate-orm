@@ -26,7 +26,6 @@ package org.hibernate.jpa.graph.internal;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
-
 import javax.persistence.AttributeNode;
 import javax.persistence.Subgraph;
 import javax.persistence.metamodel.Attribute;
@@ -34,11 +33,12 @@ import javax.persistence.metamodel.ManagedType;
 import javax.persistence.metamodel.PluralAttribute;
 
 import org.hibernate.engine.spi.SessionFactoryImplementor;
+import org.hibernate.graph.spi.AttributeNodeImplementor;
 import org.hibernate.internal.util.collections.CollectionHelper;
 import org.hibernate.jpa.HibernateEntityManagerFactory;
-import org.hibernate.jpa.graph.spi.AttributeNodeImplementor;
 import org.hibernate.jpa.internal.metamodel.Helper;
 import org.hibernate.jpa.internal.metamodel.PluralAttributeImpl;
+import org.hibernate.jpa.spi.HibernateEntityManagerFactoryAware;
 import org.hibernate.persister.collection.QueryableCollection;
 import org.hibernate.persister.entity.EntityPersister;
 import org.hibernate.persister.entity.Joinable;
@@ -50,7 +50,7 @@ import org.hibernate.type.Type;
  *
  * @author Steve Ebersole
  */
-public class AttributeNodeImpl<T> implements AttributeNode<T>, AttributeNodeImplementor<T> {
+public class AttributeNodeImpl<T> implements AttributeNode<T>, AttributeNodeImplementor<T>, HibernateEntityManagerFactoryAware {
 	private final HibernateEntityManagerFactory entityManagerFactory;
 	private final Attribute<?,T> attribute;
 
@@ -77,12 +77,12 @@ public class AttributeNodeImpl<T> implements AttributeNode<T>, AttributeNodeImpl
 	}
 
 	@Override
-	public HibernateEntityManagerFactory entityManagerFactory() {
+	public HibernateEntityManagerFactory getFactory() {
 		return entityManagerFactory;
 	}
 
 	private SessionFactoryImplementor sessionFactory() {
-		return (SessionFactoryImplementor) entityManagerFactory().getSessionFactory();
+		return (SessionFactoryImplementor) getFactory().getSessionFactory();
 	}
 
 	@Override

@@ -1,7 +1,7 @@
 /*
  * Hibernate, Relational Persistence for Idiomatic Java
  *
- * Copyright (c) 2012, Red Hat Inc. or third-party contributors as
+ * Copyright (c) 2013, Red Hat Inc. or third-party contributors as
  * indicated by the @author tags or express copyright attribution
  * statements applied by the authors.  All third-party contributions are
  * distributed under license by Red Hat Inc.
@@ -26,7 +26,7 @@ package org.hibernate.loader.plan.spi;
 /**
  * Represents a return value in the query results.  Not the same as a result (column) in the JDBC ResultSet!
  * <p/>
- * Return is distinctly different from a {@link Fetch} and so modeled as completely separate hierarchy.
+ * Return is distinctly different from a {@link org.hibernate.loader.plan.spi.Fetch} and so modeled as completely separate hierarchy.
  *
  * @see ScalarReturn
  * @see EntityReturn

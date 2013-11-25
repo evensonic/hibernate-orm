@@ -26,45 +26,30 @@ package org.hibernate.loader.plan.exec.internal;
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 import java.io.PrintWriter;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 
-import org.jboss.logging.Logger;
-
-import org.hibernate.cfg.NotYetImplementedException;
 import org.hibernate.engine.spi.SessionFactoryImplementor;
-import org.hibernate.hql.internal.NameGenerator;
 import org.hibernate.internal.CoreLogging;
 import org.hibernate.internal.util.StringHelper;
 import org.hibernate.loader.CollectionAliases;
 import org.hibernate.loader.DefaultEntityAliases;
 import org.hibernate.loader.EntityAliases;
 import org.hibernate.loader.GeneratedCollectionAliases;
-import org.hibernate.loader.plan.spi.BidirectionalEntityFetch;
+import org.hibernate.loader.plan.build.spi.QuerySpaceTreePrinter;
+import org.hibernate.loader.plan.build.spi.TreePrinterHelper;
 import org.hibernate.loader.plan.exec.spi.AliasResolutionContext;
 import org.hibernate.loader.plan.exec.spi.CollectionReferenceAliases;
 import org.hibernate.loader.plan.exec.spi.EntityReferenceAliases;
-import org.hibernate.loader.plan.spi.AnyFetch;
-import org.hibernate.loader.plan.spi.CollectionReference;
-import org.hibernate.loader.plan.spi.CompositeElementGraph;
-import org.hibernate.loader.plan.spi.CompositeFetch;
-import org.hibernate.loader.plan.spi.CompositeIndexGraph;
-import org.hibernate.loader.plan.spi.EntityReference;
-import org.hibernate.loader.plan.spi.Fetch;
-import org.hibernate.loader.plan.spi.FetchOwner;
-import org.hibernate.loader.plan.spi.Return;
-import org.hibernate.loader.plan.spi.ScalarReturn;
-import org.hibernate.loader.plan.spi.SourceQualifiable;
-import org.hibernate.loader.plan2.build.spi.TreePrinterHelper;
-import org.hibernate.loader.plan2.spi.LoadPlan;
-import org.hibernate.loader.plan2.spi.QuerySpace;
-import org.hibernate.loader.spi.JoinableAssociation;
+import org.hibernate.loader.plan.spi.Join;
+import org.hibernate.loader.plan.spi.LoadPlan;
+import org.hibernate.loader.plan.spi.QuerySpace;
 import org.hibernate.persister.collection.CollectionPersister;
 import org.hibernate.persister.entity.EntityPersister;
 import org.hibernate.persister.entity.Loadable;
-import org.hibernate.persister.walking.spi.WalkingException;
 import org.hibernate.type.EntityType;
+
+import org.jboss.logging.Logger;
 
 /**
  * Provides aliases that are used by load queries and ResultSet processors.
@@ -77,18 +62,16 @@ public class AliasResolutionContextImpl implements AliasResolutionContext {
 
 	private final SessionFactoryImplementor sessionFactory;
 
-	private final Map<Return,String> sourceAliasByReturnMap;
-	private final Map<SourceQualifiable,String> sourceQualifiersByReturnMap;
-
-	private final Map<EntityReference,EntityReferenceAliasesImpl> aliasesByEntityReference =
-			new HashMap<EntityReference,EntityReferenceAliasesImpl>();
-	private final Map<CollectionReference,LoadQueryCollectionAliasesImpl> aliasesByCollectionReference =
-			new HashMap<CollectionReference,LoadQueryCollectionAliasesImpl>();
-	private final Map<JoinableAssociation,JoinableAssociationAliasesImpl> aliasesByJoinableAssociation =
-			new HashMap<JoinableAssociation, JoinableAssociationAliasesImpl>();
-
+	// Used to generate unique selection value aliases (column/formula renames)
 	private int currentAliasSuffix;
-	private int currentTableAliasUniqueness;
+	// Used to generate unique table aliases
+	private int currentTableAliasSuffix;
+
+	private Map<String,EntityReferenceAliases> entityReferenceAliasesMap;
+	private Map<String,CollectionReferenceAliases> collectionReferenceAliasesMap;
+	private Map<String,String> querySpaceUidToSqlTableAliasMap;
+
+	private Map<String,String> compositeQuerySpaceUidToSqlTableAliasMap;
 
 	/**
 	 * Constructs a AliasResolutionContextImpl without any source aliases.  This form is used in
@@ -103,190 +86,30 @@ public class AliasResolutionContextImpl implements AliasResolutionContext {
 	/**
 	 * Constructs a AliasResolutionContextImpl without any source aliases.  This form is used in
 	 * non-query (HQL, criteria, etc) contexts.
+	 * <p/>
+	 * See the notes on
+	 * {@link org.hibernate.loader.plan.exec.spi.AliasResolutionContext#getSourceAlias} for discussion of
+	 * "source aliases".  They are not implemented here yet.
 	 *
 	 * @param sessionFactory The session factory
 	 * @param suffixSeed The seed value to use for generating the suffix used when generating SQL aliases.
 	 */
 	public AliasResolutionContextImpl(SessionFactoryImplementor sessionFactory, int suffixSeed) {
-		this(
-				sessionFactory,
-				suffixSeed,
-				Collections.<Return,String>emptyMap(),
-				Collections.<SourceQualifiable,String>emptyMap()
-		);
-	}
-
-	/**
-	 * Constructs a AliasResolutionContextImpl with source aliases.  See the notes on
-	 * {@link org.hibernate.loader.plan.exec.spi.AliasResolutionContext#getSourceAlias(Return)} for discussion of "source aliases".
-	 *
-	 * @param sessionFactory The session factory
-	 * @param suffixSeed The seed value to use for generating the suffix used when generating SQL aliases.
-	 * @param sourceAliasByReturnMap Mapping of the source alias for each return (select-clause assigned alias).
-	 * @param sourceQualifiersByReturnMap Mapping of source query qualifiers (from-clause assigned alias).
-	 */
-	public AliasResolutionContextImpl(
-			SessionFactoryImplementor sessionFactory,
-			int suffixSeed,
-			Map<Return, String> sourceAliasByReturnMap,
-			Map<SourceQualifiable, String> sourceQualifiersByReturnMap) {
 		this.sessionFactory = sessionFactory;
 		this.currentAliasSuffix = suffixSeed;
-		this.sourceAliasByReturnMap = new HashMap<Return, String>( sourceAliasByReturnMap );
-		this.sourceQualifiersByReturnMap = new HashMap<SourceQualifiable, String>( sourceQualifiersByReturnMap );
-	}
-
-	@Override
-	public String getSourceAlias(Return theReturn) {
-		return sourceAliasByReturnMap.get( theReturn );
-	}
-
-	@Override
-	public String[] resolveScalarColumnAliases(ScalarReturn scalarReturn) {
-		final int numberOfColumns = scalarReturn.getType().getColumnSpan( sessionFactory );
-
-		// if the scalar return was assigned an alias in the source query, use that as the basis for generating
-		// the SQL aliases
-		final String sourceAlias = getSourceAlias( scalarReturn );
-		if ( sourceAlias != null ) {
-			// generate one based on the source alias
-			// todo : to do this properly requires dialect involvement ++
-			// 		due to needing uniqueness even across identifier length based truncation; just truncating is
-			//		*not* enough since truncated names might clash
-			//
-			// for now, don't even truncate...
-			return NameGenerator.scalarNames( sourceAlias, numberOfColumns );
-		}
-		else {
-			// generate one from scratch
-			return NameGenerator.scalarNames( currentAliasSuffix++, numberOfColumns );
-		}
-	}
-
-	@Override
-	public EntityReferenceAliases resolveAliases(EntityReference entityReference) {
-		EntityReferenceAliasesImpl aliases = aliasesByEntityReference.get( entityReference );
-		if ( aliases == null ) {
-			if ( BidirectionalEntityFetch.class.isInstance( entityReference ) ) {
-				return resolveAliases(
-						( (BidirectionalEntityFetch) entityReference ).getTargetEntityReference()
-				);
-			}
-			final EntityPersister entityPersister = entityReference.getEntityPersister();
-			aliases = new EntityReferenceAliasesImpl(
-					createTableAlias( entityPersister ),
-					createEntityAliases( entityPersister )
-			);
-			aliasesByEntityReference.put( entityReference, aliases );
-		}
-		return aliases;
-	}
-
-	@Override
-	public CollectionReferenceAliases resolveAliases(CollectionReference collectionReference) {
-		LoadQueryCollectionAliasesImpl aliases = aliasesByCollectionReference.get( collectionReference );
-		if ( aliases == null ) {
-			final CollectionPersister collectionPersister = collectionReference.getCollectionPersister();
-			aliases = new LoadQueryCollectionAliasesImpl(
-					createTableAlias( collectionPersister.getRole() ),
-					collectionPersister.isManyToMany()
-							? createTableAlias( collectionPersister.getRole() )
-							: null,
-					createCollectionAliases( collectionPersister ),
-					createCollectionElementAliases( collectionPersister )
-			);
-			aliasesByCollectionReference.put( collectionReference, aliases );
-		}
-		return aliases;
-	}
-
-
-
-
-
-
-
-	@Override
-	public String resolveAssociationRhsTableAlias(JoinableAssociation joinableAssociation) {
-		return getOrGenerateJoinAssocationAliases( joinableAssociation ).rhsAlias;
-	}
-
-	@Override
-	public String resolveAssociationLhsTableAlias(JoinableAssociation joinableAssociation) {
-		return getOrGenerateJoinAssocationAliases( joinableAssociation ).lhsAlias;
-	}
-
-	@Override
-	public String[] resolveAssociationAliasedLhsColumnNames(JoinableAssociation joinableAssociation) {
-		return getOrGenerateJoinAssocationAliases( joinableAssociation ).aliasedLhsColumnNames;
 	}
 
 	protected SessionFactoryImplementor sessionFactory() {
 		return sessionFactory;
 	}
 
-	private String createSuffix() {
-		return Integer.toString( currentAliasSuffix++ ) + '_';
-	}
-
-	private JoinableAssociationAliasesImpl getOrGenerateJoinAssocationAliases(JoinableAssociation joinableAssociation) {
-		JoinableAssociationAliasesImpl aliases = aliasesByJoinableAssociation.get( joinableAssociation );
-		if ( aliases == null ) {
-			final Fetch currentFetch = joinableAssociation.getCurrentFetch();
-			final String lhsAlias;
-			if ( AnyFetch.class.isInstance( currentFetch ) ) {
-				throw new WalkingException( "Any type should never be joined!" );
-			}
-			else if ( EntityReference.class.isInstance( currentFetch.getOwner() ) ) {
-				lhsAlias = resolveAliases( (EntityReference) currentFetch.getOwner() ).getTableAlias();
-			}
-			else if ( CompositeFetch.class.isInstance( currentFetch.getOwner() ) ) {
-				lhsAlias = resolveAliases(
-						locateCompositeFetchEntityReferenceSource( (CompositeFetch) currentFetch.getOwner() )
-				).getTableAlias();
-			}
-			else if ( CompositeElementGraph.class.isInstance( currentFetch.getOwner() ) ) {
-				CompositeElementGraph compositeElementGraph = (CompositeElementGraph) currentFetch.getOwner();
-				lhsAlias = resolveAliases( compositeElementGraph.getCollectionReference() ).getElementTableAlias();
-			}
-			else if ( CompositeIndexGraph.class.isInstance( currentFetch.getOwner() ) ) {
-				CompositeIndexGraph compositeIndexGraph = (CompositeIndexGraph) currentFetch.getOwner();
-				lhsAlias = resolveAliases( compositeIndexGraph.getCollectionReference() ).getElementTableAlias();
-			}
-			else {
-				throw new NotYetImplementedException( "Cannot determine LHS alias for FetchOwner." );
-			}
-
-			final String[] aliasedLhsColumnNames = currentFetch.toSqlSelectFragments( lhsAlias );
-			final String rhsAlias;
-			if ( EntityReference.class.isInstance( currentFetch ) ) {
-				rhsAlias = resolveAliases( (EntityReference) currentFetch ).getTableAlias();
-			}
-			else if ( CollectionReference.class.isInstance( joinableAssociation.getCurrentFetch() ) ) {
-				rhsAlias = resolveAliases( (CollectionReference) currentFetch ).getCollectionTableAlias();
-			}
-			else {
-				throw new NotYetImplementedException( "Cannot determine RHS alis for a fetch that is not an EntityReference or CollectionReference." );
-			}
-
-			// TODO: can't this be found in CollectionAliases or EntityAliases? should be moved to AliasResolutionContextImpl
-
-			aliases = new JoinableAssociationAliasesImpl( lhsAlias, aliasedLhsColumnNames, rhsAlias );
-			aliasesByJoinableAssociation.put( joinableAssociation, aliases );
-		}
-		return aliases;
-	}
-
-	private EntityReference locateCompositeFetchEntityReferenceSource(CompositeFetch composite) {
-		final FetchOwner owner = composite.getOwner();
-		if ( EntityReference.class.isInstance( owner ) ) {
-			return (EntityReference) owner;
-		}
-		if ( CompositeFetch.class.isInstance( owner ) ) {
-			return locateCompositeFetchEntityReferenceSource( (CompositeFetch) owner );
-		}
-
-		throw new WalkingException( "Cannot resolve entity source for a CompositeFetch" );
+	public EntityReferenceAliases generateEntityReferenceAliases(String uid, EntityPersister entityPersister) {
+		final EntityReferenceAliasesImpl entityReferenceAliases = new EntityReferenceAliasesImpl(
+				createTableAlias( entityPersister ),
+				createEntityAliases( entityPersister )
+		);
+		registerQuerySpaceAliases( uid, entityReferenceAliases );
+		return entityReferenceAliases;
 	}
 
 	private String createTableAlias(EntityPersister entityPersister) {
@@ -294,11 +117,38 @@ public class AliasResolutionContextImpl implements AliasResolutionContext {
 	}
 
 	private String createTableAlias(String name) {
-		return StringHelper.generateAlias( name, currentTableAliasUniqueness++ );
+		return StringHelper.generateAlias( name, currentTableAliasSuffix++ );
 	}
 
 	private EntityAliases createEntityAliases(EntityPersister entityPersister) {
 		return new DefaultEntityAliases( (Loadable) entityPersister, createSuffix() );
+	}
+
+	private String createSuffix() {
+		return Integer.toString( currentAliasSuffix++ ) + '_';
+	}
+
+	public CollectionReferenceAliases generateCollectionReferenceAliases(String uid, CollectionPersister persister) {
+		final String manyToManyTableAlias;
+		final String tableAlias;
+		if ( persister.isManyToMany() ) {
+			manyToManyTableAlias = createTableAlias( persister.getRole() );
+			tableAlias = createTableAlias( persister.getElementDefinition().toEntityDefinition().getEntityPersister() );
+		}
+		else {
+			manyToManyTableAlias = null;
+			tableAlias = createTableAlias( persister.getRole() );
+		}
+
+		final CollectionReferenceAliasesImpl aliases = new CollectionReferenceAliasesImpl(
+				tableAlias,
+				manyToManyTableAlias,
+				createCollectionAliases( persister ),
+				createCollectionElementAliases( persister )
+		);
+
+		registerQuerySpaceAliases( uid, aliases );
+		return aliases;
 	}
 
 	private CollectionAliases createCollectionAliases(CollectionPersister collectionPersister) {
@@ -315,58 +165,169 @@ public class AliasResolutionContextImpl implements AliasResolutionContext {
 		}
 	}
 
-	private static class LoadQueryCollectionAliasesImpl implements CollectionReferenceAliases {
-		private final String tableAlias;
-		private final String manyToManyAssociationTableAlias;
-		private final CollectionAliases collectionAliases;
-		private final EntityAliases entityElementAliases;
-
-		public LoadQueryCollectionAliasesImpl(
-				String tableAlias,
-				String manyToManyAssociationTableAlias,
-				CollectionAliases collectionAliases,
-				EntityAliases entityElementAliases) {
-			this.tableAlias = tableAlias;
-			this.manyToManyAssociationTableAlias = manyToManyAssociationTableAlias;
-			this.collectionAliases = collectionAliases;
-			this.entityElementAliases = entityElementAliases;
+	public void registerQuerySpaceAliases(String querySpaceUid, EntityReferenceAliases entityReferenceAliases) {
+		if ( entityReferenceAliasesMap == null ) {
+			entityReferenceAliasesMap = new HashMap<String, EntityReferenceAliases>();
 		}
+		entityReferenceAliasesMap.put( querySpaceUid, entityReferenceAliases );
+		registerSqlTableAliasMapping( querySpaceUid, entityReferenceAliases.getTableAlias() );
+	}
 
-		@Override
-		public String getCollectionTableAlias() {
-			return StringHelper.isNotEmpty( manyToManyAssociationTableAlias )
-					? manyToManyAssociationTableAlias
-					: tableAlias;
+	public void registerSqlTableAliasMapping(String querySpaceUid, String sqlTableAlias) {
+		if ( querySpaceUidToSqlTableAliasMap == null ) {
+			querySpaceUidToSqlTableAliasMap = new HashMap<String, String>();
 		}
-
-		@Override
-		public String getElementTableAlias() {
-			return tableAlias;
-		}
-
-		@Override
-		public CollectionAliases getCollectionColumnAliases() {
-			return collectionAliases;
-		}
-
-		@Override
-		public EntityAliases getEntityElementColumnAliases() {
-			return entityElementAliases;
+		String old = querySpaceUidToSqlTableAliasMap.put( querySpaceUid, sqlTableAlias );
+		if ( old != null ) {
+			if ( old.equals( sqlTableAlias ) ) {
+				// silently ignore...
+			}
+			else {
+				throw new IllegalStateException(
+						String.format(
+								"Attempt to register multiple SQL table aliases [%s, %s, etc] against query space uid [%s]",
+								old,
+								sqlTableAlias,
+								querySpaceUid
+						)
+				);
+			}
 		}
 	}
 
-	private static class JoinableAssociationAliasesImpl {
-		private final String lhsAlias;
-		private final String[] aliasedLhsColumnNames;
-		private final String rhsAlias;
+	@Override
+	public String resolveSqlTableAliasFromQuerySpaceUid(String querySpaceUid) {
+		String alias = null;
+		if ( querySpaceUidToSqlTableAliasMap != null ) {
+			alias = querySpaceUidToSqlTableAliasMap.get( querySpaceUid );
+		}
 
-		public JoinableAssociationAliasesImpl(
-				String lhsAlias,
-				String[] aliasedLhsColumnNames,
-				String rhsAlias) {
-			this.lhsAlias = lhsAlias;
-			this.aliasedLhsColumnNames = aliasedLhsColumnNames;
-			this.rhsAlias = rhsAlias;
+		if ( alias == null ) {
+			if ( compositeQuerySpaceUidToSqlTableAliasMap != null ) {
+				alias = compositeQuerySpaceUidToSqlTableAliasMap.get( querySpaceUid );
+			}
+		}
+
+		return alias;
+	}
+
+	@Override
+	public EntityReferenceAliases resolveEntityReferenceAliases(String querySpaceUid) {
+		return entityReferenceAliasesMap == null ? null : entityReferenceAliasesMap.get( querySpaceUid );
+	}
+
+	public void registerQuerySpaceAliases(String querySpaceUid, CollectionReferenceAliases collectionReferenceAliases) {
+		if ( collectionReferenceAliasesMap == null ) {
+			collectionReferenceAliasesMap = new HashMap<String, CollectionReferenceAliases>();
+		}
+		collectionReferenceAliasesMap.put( querySpaceUid, collectionReferenceAliases );
+		registerSqlTableAliasMapping( querySpaceUid, collectionReferenceAliases.getCollectionTableAlias() );
+	}
+
+	@Override
+	public CollectionReferenceAliases resolveCollectionReferenceAliases(String querySpaceUid) {
+		return collectionReferenceAliasesMap == null ? null : collectionReferenceAliasesMap.get( querySpaceUid );
+	}
+
+	public void registerCompositeQuerySpaceUidResolution(String rightHandSideUid, String leftHandSideTableAlias) {
+		if ( compositeQuerySpaceUidToSqlTableAliasMap == null ) {
+			compositeQuerySpaceUidToSqlTableAliasMap = new HashMap<String, String>();
+		}
+		compositeQuerySpaceUidToSqlTableAliasMap.put( rightHandSideUid, leftHandSideTableAlias );
+	}
+
+	/**
+	 * USes its defined logger to generate a resolution report.
+	 *
+	 * @param loadPlan The loadplan that was processed.
+	 */
+	public void dumpResolutions(LoadPlan loadPlan) {
+		if ( log.isDebugEnabled() ) {
+			final ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+			final PrintStream printStream = new PrintStream( byteArrayOutputStream );
+			final PrintWriter printWriter = new PrintWriter( printStream );
+
+			printWriter.println( "LoadPlan QuerySpace resolutions" );
+
+			for ( QuerySpace querySpace : loadPlan.getQuerySpaces().getRootQuerySpaces() ) {
+				dumpQuerySpace( querySpace, 1, printWriter );
+			}
+
+			printWriter.flush();
+			printStream.flush();
+
+			log.debug( new String( byteArrayOutputStream.toByteArray() ) );
+		}
+	}
+
+	private void dumpQuerySpace(QuerySpace querySpace, int depth, PrintWriter printWriter) {
+		generateDetailLines( querySpace, depth, printWriter );
+		dumpJoins( querySpace.getJoins(), depth + 1, printWriter );
+	}
+
+	private void generateDetailLines(QuerySpace querySpace, int depth, PrintWriter printWriter) {
+		printWriter.println(
+				TreePrinterHelper.INSTANCE.generateNodePrefix( depth )
+						+ querySpace.getUid() + " -> " + extractDetails( querySpace )
+		);
+		printWriter.println(
+				TreePrinterHelper.INSTANCE.generateNodePrefix( depth+3 )
+						+ "SQL table alias mapping - " + resolveSqlTableAliasFromQuerySpaceUid( querySpace.getUid() )
+		);
+
+		final EntityReferenceAliases entityAliases = resolveEntityReferenceAliases( querySpace.getUid() );
+		final CollectionReferenceAliases collectionReferenceAliases = resolveCollectionReferenceAliases( querySpace.getUid() );
+
+		if ( entityAliases != null ) {
+			printWriter.println(
+					TreePrinterHelper.INSTANCE.generateNodePrefix( depth+3 )
+							+ "alias suffix - " + entityAliases.getColumnAliases().getSuffix()
+			);
+			printWriter.println(
+					TreePrinterHelper.INSTANCE.generateNodePrefix( depth+3 )
+							+ "suffixed key columns - "
+							+ StringHelper.join( ", ", entityAliases.getColumnAliases().getSuffixedKeyAliases() )
+			);
+		}
+
+		if ( collectionReferenceAliases != null ) {
+			printWriter.println(
+					TreePrinterHelper.INSTANCE.generateNodePrefix( depth+3 )
+							+ "alias suffix - " + collectionReferenceAliases.getCollectionColumnAliases().getSuffix()
+			);
+			printWriter.println(
+					TreePrinterHelper.INSTANCE.generateNodePrefix( depth+3 )
+							+ "suffixed key columns - "
+							+ StringHelper.join( ", ", collectionReferenceAliases.getCollectionColumnAliases().getSuffixedKeyAliases() )
+			);
+			final EntityAliases elementAliases = collectionReferenceAliases.getEntityElementColumnAliases();
+			if ( elementAliases != null ) {
+				printWriter.println(
+						TreePrinterHelper.INSTANCE.generateNodePrefix( depth+3 )
+								+ "entity-element alias suffix - " + elementAliases.getSuffix()
+				);
+				printWriter.println(
+						TreePrinterHelper.INSTANCE.generateNodePrefix( depth+3 )
+								+ elementAliases.getSuffix()
+								+ "entity-element suffixed key columns - "
+								+ StringHelper.join( ", ", elementAliases.getSuffixedKeyAliases() )
+				);
+			}
+		}
+	}
+
+	private String extractDetails(QuerySpace querySpace) {
+		return QuerySpaceTreePrinter.INSTANCE.extractDetails( querySpace );
+	}
+
+	private void dumpJoins(Iterable<Join> joins, int depth, PrintWriter printWriter) {
+		for ( Join join : joins ) {
+			printWriter.println(
+					TreePrinterHelper.INSTANCE.generateNodePrefix( depth )
+							+ "JOIN (" + join.getLeftHandSide().getUid() + " -> " + join.getRightHandSide()
+							.getUid() + ")"
+			);
+			dumpQuerySpace( join.getRightHandSide(), depth+1, printWriter );
 		}
 	}
 }

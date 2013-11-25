@@ -23,6 +23,17 @@
  */
 package org.hibernate.jpa.internal;
 
+import java.io.IOException;
+import java.io.InvalidObjectException;
+import java.io.ObjectOutputStream;
+import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import javax.persistence.Cache;
 import javax.persistence.EntityGraph;
 import javax.persistence.EntityManager;
@@ -41,19 +52,6 @@ import javax.persistence.metamodel.EntityType;
 import javax.persistence.metamodel.Metamodel;
 import javax.persistence.spi.LoadState;
 import javax.persistence.spi.PersistenceUnitTransactionType;
-import java.io.IOException;
-import java.io.InvalidObjectException;
-import java.io.ObjectOutputStream;
-import java.io.Serializable;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-
-import org.jboss.logging.Logger;
 
 import org.hibernate.Hibernate;
 import org.hibernate.SessionFactory;
@@ -76,6 +74,7 @@ import org.hibernate.jpa.HibernateQuery;
 import org.hibernate.jpa.boot.internal.SettingsImpl;
 import org.hibernate.jpa.criteria.CriteriaBuilderImpl;
 import org.hibernate.jpa.graph.internal.AbstractGraphNode;
+import org.hibernate.jpa.graph.internal.AttributeNodeImpl;
 import org.hibernate.jpa.graph.internal.EntityGraphImpl;
 import org.hibernate.jpa.graph.internal.SubgraphImpl;
 import org.hibernate.jpa.internal.metamodel.EntityTypeImpl;
@@ -84,6 +83,8 @@ import org.hibernate.jpa.internal.util.PersistenceUtilHelper;
 import org.hibernate.metadata.ClassMetadata;
 import org.hibernate.procedure.ProcedureCall;
 import org.hibernate.service.ServiceRegistry;
+
+import org.jboss.logging.Logger;
 
 /**
  * Actual Hibernate implementation of {@link javax.persistence.EntityManagerFactory}.
@@ -274,8 +275,10 @@ public class EntityManagerFactoryImpl implements HibernateEntityManagerFactory {
 			NamedEntityGraph namedEntityGraph,
 			AbstractGraphNode graphNode) {
 		for ( NamedAttributeNode namedAttributeNode : namedAttributeNodes ) {
+			final String value = namedAttributeNode.value();
+			AttributeNodeImpl attributeNode = graphNode.addAttribute( value );
 			if ( StringHelper.isNotEmpty( namedAttributeNode.subgraph() ) ) {
-				final SubgraphImpl subgraph = graphNode.addSubgraph( namedAttributeNode.value() );
+				final SubgraphImpl subgraph = attributeNode.makeSubgraph();
 				applyNamedSubgraphs(
 						namedEntityGraph,
 						namedAttributeNode.subgraph(),
@@ -283,7 +286,8 @@ public class EntityManagerFactoryImpl implements HibernateEntityManagerFactory {
 				);
 			}
 			if ( StringHelper.isNotEmpty( namedAttributeNode.keySubgraph() ) ) {
-				final SubgraphImpl subgraph = graphNode.addKeySubgraph( namedAttributeNode.value() );
+				final SubgraphImpl subgraph = attributeNode.makeKeySubgraph();
+
 				applyNamedSubgraphs(
 						namedEntityGraph,
 						namedAttributeNode.keySubgraph(),

@@ -1,7 +1,7 @@
 /*
  * Hibernate, Relational Persistence for Idiomatic Java
  *
- * Copyright (c) 2012, Red Hat Inc. or third-party contributors as
+ * Copyright (c) 2013, Red Hat Inc. or third-party contributors as
  * indicated by the @author tags or express copyright attribution
  * statements applied by the authors.  All third-party contributions are
  * distributed under license by Red Hat Inc.
@@ -31,17 +31,17 @@ import java.util.List;
  * Generally speaking there are 3 forms of load plans:<ul>
  *     <li>
  *         {@link org.hibernate.loader.plan.spi.LoadPlan.Disposition#ENTITY_LOADER} - An entity load plan for
- *         handling get/load handling.  This form will typically have a single return (of type {@link EntityReturn})
+ *         handling get/load handling.  This form will typically have a single return (of type {@link org.hibernate.loader.plan.spi.EntityReturn})
  *         defined by {@link #getReturns()}, possibly defining fetches.
  *     </li>
  *     <li>
  *         {@link org.hibernate.loader.plan.spi.LoadPlan.Disposition#COLLECTION_INITIALIZER} - A collection initializer,
  *         used to load the contents of a collection.  This form will typically have a single return (of
- *         type {@link CollectionReturn}) defined by {@link #getReturns()}, possibly defining fetches
+ *         type {@link org.hibernate.loader.plan.spi.CollectionReturn}) defined by {@link #getReturns()}, possibly defining fetches
  *     </li>
  *     <li>
  *         {@link org.hibernate.loader.plan.spi.LoadPlan.Disposition#MIXED} - A query load plan which can contain
- *         multiple returns of mixed type (though all implementing {@link Return}).  Again, may possibly define fetches.
+ *         multiple returns of mixed type (though all implementing {@link org.hibernate.loader.plan.spi.Return}).  Again, may possibly define fetches.
  *     </li>
  * </ul>
  * <p/>
@@ -64,15 +64,15 @@ public interface LoadPlan {
 	/**
 	 * Get the returns indicated by this LoadPlan.<ul>
 	 *     <li>
-	 *         A {@link Disposition#ENTITY_LOADER} LoadPlan would have just a single Return of type {@link EntityReturn}.
+	 *         A {@link Disposition#ENTITY_LOADER} LoadPlan would have just a single Return of type {@link org.hibernate.loader.plan.spi.EntityReturn}.
 	 *     </li>
 	 *     <li>
 	 *         A {@link Disposition#COLLECTION_INITIALIZER} LoadPlan would have just a single Return of type
-	 *         {@link CollectionReturn}.
+	 *         {@link org.hibernate.loader.plan.spi.CollectionReturn}.
 	 *     </li>
 	 *     <li>
-	 *         A {@link Disposition#MIXED} LoadPlan would contain a mix of {@link EntityReturn} and
-	 *         {@link ScalarReturn} elements, but no {@link CollectionReturn}.
+	 *         A {@link Disposition#MIXED} LoadPlan would contain a mix of {@link org.hibernate.loader.plan.spi.EntityReturn} and
+	 *         {@link org.hibernate.loader.plan.spi.ScalarReturn} elements, but no {@link org.hibernate.loader.plan.spi.CollectionReturn}.
 	 *     </li>
 	 * </ul>
 	 *
@@ -81,6 +81,17 @@ public interface LoadPlan {
 	 * @see Disposition
 	 */
 	public List<? extends Return> getReturns();
+
+	/**
+	 * todo : document this...
+	 * <p/>
+	 * this is the stuff that was added in this plan package...  splitting the "from clause" and "select clause"
+	 * graphs and removing all (started) SQL references.  QuerySpaces represents the "from clause".  The
+	 * "select clause" is represented by {@link #getReturns()}.
+	 *
+	 * @return The QuerySpaces
+	 */
+	public QuerySpaces getQuerySpaces();
 
 	/**
 	 * Does this load plan indicate that lazy attributes are to be force fetched?
@@ -111,17 +122,17 @@ public interface LoadPlan {
 	public static enum Disposition {
 		/**
 		 * This is an "entity loader" load plan, which describes a plan for loading one or more entity instances of
-		 * the same entity type.  There is a single return, which will be of type {@link EntityReturn}
+		 * the same entity type.  There is a single return, which will be of type {@link org.hibernate.loader.plan.spi.EntityReturn}
 		 */
 		ENTITY_LOADER,
 		/**
 		 * This is a "collection initializer" load plan, which describes a plan for loading one or more entity instances of
-		 * the same collection type.  There is a single return, which will be of type {@link CollectionReturn}
+		 * the same collection type.  There is a single return, which will be of type {@link org.hibernate.loader.plan.spi.CollectionReturn}
 		 */
 		COLLECTION_INITIALIZER,
 		/**
-		 * We have a mixed load plan, which will have one or more returns of {@link EntityReturn} and {@link ScalarReturn}
-		 * (NOT {@link CollectionReturn}).
+		 * We have a mixed load plan, which will have one or more returns of {@link org.hibernate.loader.plan.spi.EntityReturn} and {@link org.hibernate.loader.plan.spi.ScalarReturn}
+		 * (NOT {@link org.hibernate.loader.plan.spi.CollectionReturn}).
 		 */
 		MIXED
 	}

@@ -23,7 +23,6 @@
  */
 package org.hibernate.procedure.internal;
 
-import javax.persistence.ParameterMode;
 import java.sql.CallableStatement;
 import java.sql.SQLException;
 import java.util.ArrayList;
@@ -33,8 +32,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-
-import org.jboss.logging.Logger;
+import javax.persistence.ParameterMode;
 
 import org.hibernate.HibernateException;
 import org.hibernate.QueryException;
@@ -46,10 +44,10 @@ import org.hibernate.engine.spi.QueryParameters;
 import org.hibernate.engine.spi.SessionFactoryImplementor;
 import org.hibernate.engine.spi.SessionImplementor;
 import org.hibernate.internal.AbstractBasicQueryContractImpl;
+import org.hibernate.internal.CoreMessageLogger;
 import org.hibernate.internal.util.StringHelper;
 import org.hibernate.internal.util.collections.CollectionHelper;
 import org.hibernate.persister.entity.EntityPersister;
-import org.hibernate.procedure.NamedParametersNotSupportedException;
 import org.hibernate.procedure.NoSuchParameterException;
 import org.hibernate.procedure.ParameterRegistration;
 import org.hibernate.procedure.ParameterStrategyException;
@@ -61,13 +59,18 @@ import org.hibernate.procedure.spi.ParameterStrategy;
 import org.hibernate.result.spi.ResultContext;
 import org.hibernate.type.Type;
 
+import org.jboss.logging.Logger;
+
 /**
  * Standard implementation of {@link org.hibernate.procedure.ProcedureCall}
  *
  * @author Steve Ebersole
  */
 public class ProcedureCallImpl extends AbstractBasicQueryContractImpl implements ProcedureCall, ResultContext {
-	private static final Logger log = Logger.getLogger( ProcedureCallImpl.class );
+	private static final CoreMessageLogger LOG = Logger.getMessageLogger(
+			CoreMessageLogger.class,
+			ProcedureCallImpl.class.getName()
+	);
 
 	private static final NativeSQLQueryReturn[] NO_RETURNS = new NativeSQLQueryReturn[0];
 
@@ -196,7 +199,7 @@ public class ProcedureCallImpl extends AbstractBasicQueryContractImpl implements
 		final List<ProcedureCallMementoImpl.ParameterMemento> storedRegistrations = memento.getParameterDeclarations();
 		if ( storedRegistrations == null ) {
 			// most likely a problem if ParameterStrategy is not UNKNOWN...
-			log.debugf(
+			LOG.debugf(
 					"ParameterStrategy was [%s] on named copy [%s], but no parameters stored",
 					parameterStrategy,
 					procedureName
@@ -306,7 +309,7 @@ public class ProcedureCallImpl extends AbstractBasicQueryContractImpl implements
 		if ( parameterStrategy == ParameterStrategy.POSITIONAL ) {
 			throw new QueryException( "Cannot mix named and positional parameters" );
 		}
-		if ( parameterStrategy == null ) {
+		if ( parameterStrategy == ParameterStrategy.UNKNOWN ) {
 			// protect to only do this check once
 			final ExtractedDatabaseMetaData databaseMetaData = getSession().getTransactionCoordinator()
 					.getJdbcCoordinator()
@@ -314,9 +317,7 @@ public class ProcedureCallImpl extends AbstractBasicQueryContractImpl implements
 					.getJdbcServices()
 					.getExtractedMetaDataSupport();
 			if ( ! databaseMetaData.supportsNamedParameters() ) {
-				throw new NamedParametersNotSupportedException(
-						"Named stored procedure parameters used, but JDBC driver does not support named parameters"
-				);
+				LOG.unsupportedNamedParameters();
 			}
 			parameterStrategy = ParameterStrategy.NAMED;
 		}

@@ -1,6 +1,5 @@
 package org.hibernate.jpa.internal.util;
 
-import javax.persistence.spi.LoadState;
 import java.io.Serializable;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
@@ -10,6 +9,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.WeakHashMap;
+import javax.persistence.spi.LoadState;
 
 import org.hibernate.HibernateException;
 import org.hibernate.bytecode.instrumentation.internal.FieldInterceptionHelper;
@@ -31,7 +31,10 @@ import org.hibernate.proxy.LazyInitializer;
  * @author Hardy Ferentschik
  * @author Steve Ebersole
  */
-public class PersistenceUtilHelper {
+public final class PersistenceUtilHelper {
+	private PersistenceUtilHelper() {
+	}
+
 	/**
 	 * Determine if the given object reference represents loaded state.  The reference may be to an entity or a
 	 * persistent collection.
@@ -364,7 +367,7 @@ public class PersistenceUtilHelper {
 	 */
 	private static Method getMethod(Class<?> clazz, String attributeName) {
 		try {
-			char string[] = attributeName.toCharArray();
+			char[] string = attributeName.toCharArray();
 			string[0] = Character.toUpperCase( string[0] );
 			String casedAttributeName = new String( string );
 			try {

@@ -30,7 +30,7 @@ import org.hibernate.loader.plan.exec.spi.EntityReferenceAliases;
  * @author Gail Badner
  * @author Steve Ebersole
  */
-class EntityReferenceAliasesImpl implements EntityReferenceAliases {
+public class EntityReferenceAliasesImpl implements EntityReferenceAliases {
 	private final String tableAlias;
 	private final EntityAliases columnAliases;
 

@@ -24,7 +24,7 @@
 package org.hibernate.test.loadplans.walking;
 
 import org.hibernate.annotations.common.util.StringHelper;
-import org.hibernate.loader.plan2.spi.FetchSource;
+import org.hibernate.loader.plan.spi.FetchSource;
 import org.hibernate.persister.walking.spi.AnyMappingDefinition;
 import org.hibernate.persister.walking.spi.AssociationAttributeDefinition;
 import org.hibernate.persister.walking.spi.AssociationKey;
@@ -204,33 +204,8 @@ public class LoggingAssociationVisitationStrategy implements AssociationVisitati
 		);
 	}
 
-
-	// why do we have these + startingCollectionElements/finishingCollectionElements ???
-//
-//	@Override
-//	public void startingCompositeCollectionElement(CompositeCollectionElementDefinition compositionElementDefinition) {
-//		System.out.println(
-//				String.format(
-//						"%s Starting composite (%s)",
-//						StringHelper.repeat( ">>", ++depth ),
-//						compositionElementDefinition.getCollectionDefinition().getCollectionPersister().getRole()
-//				)
-//		);
-//	}
-//
-//	@Override
-//	public void finishingCompositeCollectionElement(CompositeCollectionElementDefinition compositionElementDefinition) {
-//		System.out.println(
-//				String.format(
-//						"%s Finishing composite (%s)",
-//						StringHelper.repeat( "<<", depth-- ),
-//						compositionElementDefinition.getCollectionDefinition().getCollectionPersister().getRole()
-//				)
-//		);
-//	}
-
 	@Override
-	public void foundAny(AssociationAttributeDefinition attributeDefinition, AnyMappingDefinition anyDefinition) {
+	public void foundAny(AnyMappingDefinition anyDefinition) {
 		// nothing to do
 	}
 

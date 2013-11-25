@@ -23,6 +23,7 @@
  *
  */
 package org.hibernate.loader.custom.sql;
+
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -31,8 +32,6 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-
-import org.jboss.logging.Logger;
 
 import org.hibernate.HibernateException;
 import org.hibernate.MappingException;
@@ -44,6 +43,7 @@ import org.hibernate.engine.query.spi.sql.NativeSQLQueryReturn;
 import org.hibernate.engine.query.spi.sql.NativeSQLQueryRootReturn;
 import org.hibernate.engine.query.spi.sql.NativeSQLQueryScalarReturn;
 import org.hibernate.engine.spi.SessionFactoryImplementor;
+import org.hibernate.internal.CoreLogging;
 import org.hibernate.internal.CoreMessageLogger;
 import org.hibernate.loader.BasicLoader;
 import org.hibernate.loader.CollectionAliases;
@@ -66,7 +66,6 @@ import org.hibernate.persister.collection.SQLLoadableCollection;
 import org.hibernate.persister.entity.EntityPersister;
 import org.hibernate.persister.entity.Joinable;
 import org.hibernate.persister.entity.SQLLoadable;
-import org.hibernate.type.AssociationType;
 import org.hibernate.type.EntityType;
 import org.hibernate.type.Type;
 
@@ -81,9 +80,7 @@ import org.hibernate.type.Type;
  * @author Steve Ebersole
  */
 public class SQLQueryReturnProcessor {
-
-    private static final CoreMessageLogger LOG = Logger.getMessageLogger(CoreMessageLogger.class,
-                                                                       SQLQueryReturnProcessor.class.getName());
+    private static final CoreMessageLogger LOG = CoreLogging.messageLogger( SQLQueryReturnProcessor.class );
 
 	private NativeSQLQueryReturn[] queryReturns;
 
@@ -111,8 +108,8 @@ public class SQLQueryReturnProcessor {
 //	private List collectionPersisters = new ArrayList();
 //	private List collectionResults = new ArrayList();
 
-	private int entitySuffixSeed = 0;
-	private int collectionSuffixSeed = 0;
+	private int entitySuffixSeed;
+	private int collectionSuffixSeed;
 
 
 	public SQLQueryReturnProcessor(NativeSQLQueryReturn[] queryReturns, SessionFactoryImplementor factory) {
@@ -122,23 +119,23 @@ public class SQLQueryReturnProcessor {
 
 	public class ResultAliasContext {
 		public SQLLoadable getEntityPersister(String alias) {
-			return ( SQLLoadable ) alias2Persister.get( alias );
+			return (SQLLoadable) alias2Persister.get( alias );
 		}
 
 		public SQLLoadableCollection getCollectionPersister(String alias) {
-			return ( SQLLoadableCollection ) alias2CollectionPersister.get( alias );
+			return (SQLLoadableCollection) alias2CollectionPersister.get( alias );
 		}
 
 		public String getEntitySuffix(String alias) {
-			return ( String ) alias2Suffix.get( alias );
+			return (String) alias2Suffix.get( alias );
 		}
 
 		public String getCollectionSuffix(String alias) {
-			return ( String ) alias2CollectionSuffix.get ( alias );
+			return (String) alias2CollectionSuffix.get( alias );
 		}
 
 		public String getOwnerAlias(String alias) {
-			return ( String ) alias2OwnerAlias.get( alias );
+			return (String) alias2OwnerAlias.get( alias );
 		}
 
 		public Map getPropertyResultsMap(String alias) {

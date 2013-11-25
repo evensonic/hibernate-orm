@@ -1,7 +1,7 @@
 /*
  * Hibernate, Relational Persistence for Idiomatic Java
  *
- * Copyright (c) 2012, Red Hat Inc. or third-party contributors as
+ * Copyright (c) 2013, Red Hat Inc. or third-party contributors as
  * indicated by the @author tags or express copyright attribution
  * statements applied by the authors.  All third-party contributions are
  * distributed under license by Red Hat Inc.
@@ -42,7 +42,7 @@ public interface ScrollableResultSetProcessor {
 	/**
 	 * Give a ResultSet, extract just a single result row.
 	 *
-	 * Copy of {@link org.hibernate.loader.Loader#loadSingleRow(ResultSet, SessionImplementor, QueryParameters, boolean)}
+	 * Copy of {@link org.hibernate.loader.Loader#loadSingleRow(java.sql.ResultSet, org.hibernate.engine.spi.SessionImplementor, org.hibernate.engine.spi.QueryParameters, boolean)}
 	 * but dropping the 'returnProxies' (that method has only one use in the entire codebase and it always passes in
 	 * false...)
 	 *
@@ -64,7 +64,7 @@ public interface ScrollableResultSetProcessor {
 	 * properly ordered to account for any to-many fetches.  Multiple ResultSet rows are read into a single query
 	 * result "row".
 	 *
-	 * Copy of {@link org.hibernate.loader.Loader#loadSequentialRowsForward(ResultSet, SessionImplementor, QueryParameters, boolean)}
+	 * Copy of {@link org.hibernate.loader.Loader#loadSequentialRowsForward(java.sql.ResultSet, org.hibernate.engine.spi.SessionImplementor, org.hibernate.engine.spi.QueryParameters, boolean)}
 	 * but dropping the 'returnProxies' (that method has only one use in the entire codebase and it always passes in
 	 * false...)
 	 *
@@ -84,7 +84,7 @@ public interface ScrollableResultSetProcessor {
 	/**
 	 * Like {@link #extractLogicalRowForward} but here moving through the ResultSet in reverse.
 	 *
-	 * Copy of {@link org.hibernate.loader.Loader#loadSequentialRowsReverse(ResultSet, SessionImplementor, QueryParameters, boolean, boolean)}
+	 * Copy of {@link org.hibernate.loader.Loader#loadSequentialRowsReverse(java.sql.ResultSet, org.hibernate.engine.spi.SessionImplementor, org.hibernate.engine.spi.QueryParameters, boolean, boolean)}
 	 * but dropping the 'returnProxies' (that method has only one use in the entire codebase and it always passes in
 	 * false...).
 	 *

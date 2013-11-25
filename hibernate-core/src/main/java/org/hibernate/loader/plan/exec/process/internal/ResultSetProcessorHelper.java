@@ -64,9 +64,14 @@ public class ResultSetProcessorHelper {
 			else {
 				entityPersister = session.getFactory().getEntityPersister( optionalEntityName );
 			}
-			if ( entityPersister.isInstance( optionalId ) ) {
-				// embedded (non-encapsulated) composite identifier
-				final Serializable identifierState = ( (CompositeType) entityPersister.getIdentifierType() ).getPropertyValues( optionalId, session );
+			if ( entityPersister.isInstance( optionalId ) &&
+					!entityPersister.getEntityMetamodel().getIdentifierProperty().isVirtual() &&
+					entityPersister.getEntityMetamodel().getIdentifierProperty().isEmbedded() ) {
+				// non-encapsulated composite identifier
+				final Serializable identifierState = ((CompositeType) entityPersister.getIdentifierType()).getPropertyValues(
+						optionalId,
+						session
+				);
 				return session.generateEntityKey( identifierState, entityPersister );
 			}
 			else {

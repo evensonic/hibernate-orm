@@ -23,22 +23,15 @@
  */
 package org.hibernate.loader.plan.exec.process.spi;
 
-import java.sql.ResultSet;
-import java.sql.SQLException;
-
 import org.hibernate.LockMode;
-import org.hibernate.engine.FetchStrategy;
 import org.hibernate.engine.spi.EntityKey;
 import org.hibernate.engine.spi.QueryParameters;
 import org.hibernate.engine.spi.SessionImplementor;
-import org.hibernate.loader.EntityAliases;
-import org.hibernate.loader.plan.exec.spi.AliasResolutionContext;
 import org.hibernate.loader.plan.exec.spi.LockModeResolver;
 import org.hibernate.loader.plan.spi.EntityReference;
 import org.hibernate.loader.plan.spi.Fetch;
 import org.hibernate.loader.plan.spi.LoadPlan;
 import org.hibernate.persister.entity.EntityPersister;
-import org.hibernate.type.EntityType;
 
 /**
  * @author Steve Ebersole

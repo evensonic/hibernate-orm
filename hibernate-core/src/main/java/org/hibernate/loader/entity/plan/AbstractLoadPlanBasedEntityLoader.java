@@ -40,13 +40,16 @@ import org.hibernate.engine.spi.SessionImplementor;
 import org.hibernate.internal.CoreLogging;
 import org.hibernate.internal.CoreMessageLogger;
 import org.hibernate.loader.entity.UniqueEntityLoader;
-import org.hibernate.loader.plan2.build.internal.FetchStyleLoadPlanBuildingAssociationVisitationStrategy;
-import org.hibernate.loader.plan2.build.spi.MetamodelDrivenLoadPlanBuilder;
-import org.hibernate.loader.plan2.exec.internal.AbstractLoadPlanBasedLoader;
-import org.hibernate.loader.plan2.exec.query.spi.NamedParameterContext;
-import org.hibernate.loader.plan2.exec.query.spi.QueryBuildingParameters;
-import org.hibernate.loader.plan2.exec.spi.EntityLoadQueryDetails;
-import org.hibernate.loader.plan2.spi.LoadPlan;
+import org.hibernate.loader.plan.build.internal.FetchGraphLoadPlanBuildingStrategy;
+import org.hibernate.loader.plan.build.internal.FetchStyleLoadPlanBuildingAssociationVisitationStrategy;
+import org.hibernate.loader.plan.build.internal.LoadGraphLoadPlanBuildingStrategy;
+import org.hibernate.loader.plan.build.spi.LoadPlanBuildingAssociationVisitationStrategy;
+import org.hibernate.loader.plan.build.spi.MetamodelDrivenLoadPlanBuilder;
+import org.hibernate.loader.plan.exec.internal.AbstractLoadPlanBasedLoader;
+import org.hibernate.loader.plan.exec.query.spi.NamedParameterContext;
+import org.hibernate.loader.plan.exec.query.spi.QueryBuildingParameters;
+import org.hibernate.loader.plan.exec.spi.EntityLoadQueryDetails;
+import org.hibernate.loader.plan.spi.LoadPlan;
 import org.hibernate.loader.spi.AfterLoadAction;
 import org.hibernate.persister.entity.EntityPersister;
 import org.hibernate.persister.entity.OuterJoinLoadable;
@@ -80,11 +83,22 @@ public abstract class AbstractLoadPlanBasedEntityLoader extends AbstractLoadPlan
 		this.uniqueKeyType = uniqueKeyType;
 		this.entityName = entityPersister.getEntityName();
 
-		final FetchStyleLoadPlanBuildingAssociationVisitationStrategy strategy = new FetchStyleLoadPlanBuildingAssociationVisitationStrategy(
-				factory,
-				buildingParameters.getQueryInfluencers(),
-				buildingParameters.getLockMode()
-		);
+		final LoadPlanBuildingAssociationVisitationStrategy strategy;
+		if ( buildingParameters.getQueryInfluencers().getFetchGraph() != null ) {
+			strategy = new FetchGraphLoadPlanBuildingStrategy(
+					factory, buildingParameters.getQueryInfluencers(),buildingParameters.getLockMode()
+			);
+		}
+		else if ( buildingParameters.getQueryInfluencers().getLoadGraph() != null ) {
+			strategy = new LoadGraphLoadPlanBuildingStrategy(
+					factory, buildingParameters.getQueryInfluencers(),buildingParameters.getLockMode()
+			);
+		}
+		else {
+			strategy = new FetchStyleLoadPlanBuildingAssociationVisitationStrategy(
+					factory, buildingParameters.getQueryInfluencers(),buildingParameters.getLockMode()
+			);
+		}
 
 		this.plan = MetamodelDrivenLoadPlanBuilder.buildRootEntityLoadPlan( strategy, entityPersister );
 		this.staticLoadQuery = EntityLoadQueryDetails.makeForBatching(

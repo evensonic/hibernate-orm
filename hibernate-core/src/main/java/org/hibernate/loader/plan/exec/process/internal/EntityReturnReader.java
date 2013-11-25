@@ -30,7 +30,6 @@ import org.hibernate.AssertionFailure;
 import org.hibernate.engine.spi.EntityKey;
 import org.hibernate.loader.plan.exec.process.spi.ResultSetProcessingContext;
 import org.hibernate.loader.plan.exec.process.spi.ReturnReader;
-import org.hibernate.loader.plan.exec.spi.EntityReferenceAliases;
 import org.hibernate.loader.plan.spi.EntityReturn;
 import org.hibernate.proxy.HibernateProxy;
 
@@ -39,35 +38,15 @@ import static org.hibernate.loader.plan.exec.process.spi.ResultSetProcessingCont
 /**
  * @author Steve Ebersole
  */
-public class EntityReturnReader extends EntityReferenceReader implements ReturnReader {
+public class EntityReturnReader implements ReturnReader {
 	private final EntityReturn entityReturn;
 
-	public EntityReturnReader(EntityReturn entityReturn, EntityReferenceAliases aliases, EntityIdentifierReader identifierReader) {
-		super( entityReturn, aliases, identifierReader );
+	public EntityReturnReader(EntityReturn entityReturn) {
 		this.entityReturn = entityReturn;
 	}
 
-//	@Override
-//	public void hydrate(ResultSet resultSet, ResultSetProcessingContext context) throws SQLException {
-//		final EntityKey entityKey = getEntityKeyFromContext( context );
-//		if ( entityKey != null ) {
-//			getIdentifierResolutionContext( context ).registerEntityKey( entityKey );
-//			return;
-//		}
-//
-//		entityReturn.getIdentifierDescription().hydrate( resultSet, context );
-//
-//		for ( Fetch fetch : entityReturn.getFetches() ) {
-//			if ( FetchStrategyHelper.isJoinFetched( fetch.getFetchStrategy() ) ) {
-//				fetch.hydrate( resultSet, context );
-//			}
-//		}
-//	}
-
-	private EntityReferenceProcessingState getIdentifierResolutionContext(ResultSetProcessingContext context) {
-		final ResultSetProcessingContext.EntityReferenceProcessingState entityReferenceProcessingState = context.getProcessingState(
-				entityReturn
-		);
+	public EntityReferenceProcessingState getIdentifierResolutionContext(ResultSetProcessingContext context) {
+		final EntityReferenceProcessingState entityReferenceProcessingState = context.getProcessingState( entityReturn );
 
 		if ( entityReferenceProcessingState == null ) {
 			throw new AssertionFailure(
@@ -81,24 +60,6 @@ public class EntityReturnReader extends EntityReferenceReader implements ReturnR
 
 		return entityReferenceProcessingState;
 	}
-
-//	@Override
-//	public void resolve(ResultSet resultSet, ResultSetProcessingContext context) throws SQLException {
-//		final EntityReferenceProcessingState entityReferenceProcessingState = getIdentifierResolutionContext( context );
-//		EntityKey entityKey = entityReferenceProcessingState.getEntityKey();
-//		if ( entityKey != null ) {
-//			return;
-//		}
-//
-//		entityKey = entityReturn.getIdentifierDescription().resolve( resultSet, context );
-//		entityReferenceProcessingState.registerEntityKey( entityKey );
-//
-//		for ( Fetch fetch : entityReturn.getFetches() ) {
-//			if ( FetchStrategyHelper.isJoinFetched( fetch.getFetchStrategy() ) ) {
-//				fetch.resolve( resultSet, context );
-//			}
-//		}
-//	}
 
 	@Override
 	public Object read(ResultSet resultSet, ResultSetProcessingContext context) throws SQLException {

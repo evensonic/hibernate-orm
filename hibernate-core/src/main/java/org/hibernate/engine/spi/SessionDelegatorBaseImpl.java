@@ -46,6 +46,7 @@ import org.hibernate.SQLQuery;
 import org.hibernate.ScrollMode;
 import org.hibernate.ScrollableResults;
 import org.hibernate.Session;
+import org.hibernate.SessionEventListener;
 import org.hibernate.SessionFactory;
 import org.hibernate.SharedSessionBuilder;
 import org.hibernate.SimpleNaturalIdLoadAccess;
@@ -284,16 +285,6 @@ public class SessionDelegatorBaseImpl implements SessionImplementor, Session {
 	}
 
 	@Override
-	public NonFlushedChanges getNonFlushedChanges() throws HibernateException {
-		return sessionImplementor.getNonFlushedChanges();
-	}
-
-	@Override
-	public void applyNonFlushedChanges(NonFlushedChanges nonFlushedChanges) throws HibernateException {
-		sessionImplementor.applyNonFlushedChanges( nonFlushedChanges );
-	}
-
-	@Override
 	public CacheMode getCacheMode() {
 		return sessionImplementor.getCacheMode();
 	}
@@ -386,6 +377,11 @@ public class SessionDelegatorBaseImpl implements SessionImplementor, Session {
 	@Override
 	public SQLQuery createSQLQuery(NamedSQLQueryDefinition namedQueryDefinition) {
 		return sessionImplementor.createSQLQuery( namedQueryDefinition );
+	}
+
+	@Override
+	public SessionEventListenerManager getEventListenerManager() {
+		return sessionImplementor.getEventListenerManager();
 	}
 
 	// Delegates to Session
@@ -800,4 +796,8 @@ public class SessionDelegatorBaseImpl implements SessionImplementor, Session {
 		return session.getLobHelper();
 	}
 
+	@Override
+	public void addEventListeners(SessionEventListener... listeners) {
+		session.addEventListeners( listeners );
+	}
 }

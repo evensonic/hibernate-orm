@@ -23,11 +23,6 @@
  */
 package org.hibernate.internal;
 
-import static org.jboss.logging.Logger.Level.DEBUG;
-import static org.jboss.logging.Logger.Level.ERROR;
-import static org.jboss.logging.Logger.Level.INFO;
-import static org.jboss.logging.Logger.Level.WARN;
-
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
@@ -38,7 +33,6 @@ import java.sql.SQLWarning;
 import java.util.Hashtable;
 import java.util.Properties;
 import java.util.Set;
-
 import javax.naming.NameNotFoundException;
 import javax.naming.NamingException;
 import javax.transaction.Synchronization;
@@ -56,15 +50,20 @@ import org.hibernate.engine.loading.internal.EntityLoadContext;
 import org.hibernate.engine.spi.CollectionKey;
 import org.hibernate.engine.spi.SessionFactoryImplementor;
 import org.hibernate.id.IntegralDataTypeHolder;
-import org.hibernate.service.Service;
 import org.hibernate.type.BasicType;
 import org.hibernate.type.SerializationException;
 import org.hibernate.type.Type;
+
 import org.jboss.logging.BasicLogger;
 import org.jboss.logging.annotations.Cause;
 import org.jboss.logging.annotations.LogMessage;
 import org.jboss.logging.annotations.Message;
 import org.jboss.logging.annotations.MessageLogger;
+
+import static org.jboss.logging.Logger.Level.DEBUG;
+import static org.jboss.logging.Logger.Level.ERROR;
+import static org.jboss.logging.Logger.Level.INFO;
+import static org.jboss.logging.Logger.Level.WARN;
 
 /**
  * The jboss-logging {@link MessageLogger} for the hibernate-core module.  It reserves message ids ranging from
@@ -1502,7 +1501,7 @@ public interface CoreMessageLogger extends BasicLogger {
 	void unableToCloseSessionButSwallowingError(HibernateException e);
 
 	@LogMessage(level = WARN)
-	@Message(value = "You should set hibernate.transaction.manager_lookup_class if cache is enabled", id = 426)
+	@Message(value = "You should set hibernate.transaction.jta.platform if cache is enabled", id = 426)
 	void setManagerLookupClass();
 
 //	@LogMessage(level = WARN)
@@ -1637,4 +1636,33 @@ public interface CoreMessageLogger extends BasicLogger {
 			value = "Encountered request for Service by non-primary service role [%s -> %s]; please update usage"
 	)
 	void alternateServiceRole(String requestedRole, String targetRole);
+
+	@LogMessage(level = WARN)
+	@Message(
+			id = 451,
+			value = "Transaction afterCompletion called by a background thread; " +
+					"delaying afterCompletion processing until the original thread can handle it. [status=%s]"
+	)
+	void rollbackFromBackgroundThread(int status);
+	
+	@LogMessage(level = WARN)
+	@Message(value = "Exception while loading a class or resource found during scanning", id = 452)
+	void unableToLoadScannedClassOrResource(@Cause Exception e);
+	
+	@LogMessage(level = WARN)
+	@Message(value = "Exception while discovering OSGi service implementations : %s", id = 453)
+	void unableToDiscoverOsgiService(String service, @Cause Exception e);
+
+	@LogMessage(level = WARN)
+	@Message(value = "The outer-join attribute on <many-to-many> has been deprecated. Instead of outer-join=\"false\", use lazy=\"extra\" with <map>, <set>, <bag>, <idbag>, or <list>, which will only initialize entities (not as a proxy) as needed.", id = 454)
+	void deprecatedManyToManyOuterJoin();
+
+	@LogMessage(level = WARN)
+	@Message(value = "The fetch attribute on <many-to-many> has been deprecated. Instead of fetch=\"select\", use lazy=\"extra\" with <map>, <set>, <bag>, <idbag>, or <list>, which will only initialize entities (not as a proxy) as needed.", id = 455)
+	void deprecatedManyToManyFetch();
+
+	@LogMessage(level = WARN)
+	@Message(value = "Named parameters are used for a callable statement, but database metadata indicates named parameters are not supported.", id = 456)
+	void unsupportedNamedParameters();
+
 }

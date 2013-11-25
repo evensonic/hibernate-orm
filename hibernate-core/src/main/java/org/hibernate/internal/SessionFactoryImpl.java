@@ -35,11 +35,11 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-
 import javax.naming.Reference;
 import javax.naming.StringRefAddr;
 
@@ -56,6 +56,7 @@ import org.hibernate.MultiTenancyStrategy;
 import org.hibernate.ObjectNotFoundException;
 import org.hibernate.Session;
 import org.hibernate.SessionBuilder;
+import org.hibernate.SessionEventListener;
 import org.hibernate.SessionFactory;
 import org.hibernate.SessionFactoryObserver;
 import org.hibernate.StatelessSession;
@@ -150,6 +151,7 @@ import org.hibernate.tuple.entity.EntityTuplizer;
 import org.hibernate.type.AssociationType;
 import org.hibernate.type.Type;
 import org.hibernate.type.TypeResolver;
+
 import org.jboss.logging.Logger;
 
 
@@ -207,7 +209,7 @@ public final class SessionFactoryImpl
 	private final transient ConcurrentHashMap<EntityNameResolver,Object> entityNameResolvers = new ConcurrentHashMap<EntityNameResolver, Object>();
 	private final transient QueryPlanCache queryPlanCache;
 	private final transient CacheImplementor cacheAccess;
-	private transient boolean isClosed = false;
+	private transient boolean isClosed;
 	private final transient TypeResolver typeResolver;
 	private final transient TypeHelper typeHelper;
 	private final transient TransactionEnvironment transactionEnvironment;
@@ -1551,6 +1553,7 @@ public final class SessionFactoryImpl
 		private boolean autoJoinTransactions = true;
 		private boolean flushBeforeCompletion;
 		private String tenantIdentifier;
+		private List<SessionEventListener> listeners;
 
 		SessionBuilderImpl(SessionFactoryImpl sessionFactory) {
 			this.sessionFactory = sessionFactory;
@@ -1566,6 +1569,8 @@ public final class SessionFactoryImpl
 			if ( sessionFactory.getCurrentTenantIdentifierResolver() != null ) {
 				tenantIdentifier = sessionFactory.getCurrentTenantIdentifierResolver().resolveCurrentTenantIdentifier();
 			}
+
+			listeners = settings.getBaselineSessionEventsListenerBuilder().buildBaselineList();
 		}
 
 		protected TransactionCoordinatorImpl getTransactionCoordinator() {
@@ -1575,7 +1580,7 @@ public final class SessionFactoryImpl
 		@Override
 		public Session openSession() {
 			log.tracef( "Opening Hibernate Session.  tenant=%s, owner=%s", tenantIdentifier, sessionOwner );
-			return new SessionImpl(
+			final SessionImpl session = new SessionImpl(
 					connection,
 					sessionFactory,
 					sessionOwner,
@@ -1588,6 +1593,12 @@ public final class SessionFactoryImpl
 					connectionReleaseMode,
 					tenantIdentifier
 			);
+
+			for ( SessionEventListener listener : listeners ) {
+				session.getEventListenerManager().addListener( listener );
+			}
+
+			return session;
 		}
 
 		@Override
@@ -1641,6 +1652,18 @@ public final class SessionFactoryImpl
 		@Override
 		public SessionBuilder tenantIdentifier(String tenantIdentifier) {
 			this.tenantIdentifier = tenantIdentifier;
+			return this;
+		}
+
+		@Override
+		public SessionBuilder eventListeners(SessionEventListener... listeners) {
+			Collections.addAll( this.listeners, listeners );
+			return this;
+		}
+
+		@Override
+		public SessionBuilder clearEventListeners() {
+			listeners.clear();
 			return this;
 		}
 	}

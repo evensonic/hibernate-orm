@@ -1,7 +1,7 @@
 /*
  * Hibernate, Relational Persistence for Idiomatic Java
  *
- * Copyright (c) 2012, Red Hat Inc. or third-party contributors as
+ * Copyright (c) 2013, Red Hat Inc. or third-party contributors as
  * indicated by the @author tags or express copyright attribution
  * statements applied by the authors.  All third-party contributions are
  * distributed under license by Red Hat Inc.
@@ -31,7 +31,6 @@ import org.hibernate.engine.spi.QueryParameters;
 import org.hibernate.engine.spi.SessionImplementor;
 import org.hibernate.loader.plan.exec.query.spi.NamedParameterContext;
 import org.hibernate.loader.spi.AfterLoadAction;
-import org.hibernate.loader.spi.LoadPlanAdvisor;
 import org.hibernate.transform.ResultTransformer;
 
 /**
@@ -44,6 +43,13 @@ import org.hibernate.transform.ResultTransformer;
  */
 public interface ResultSetProcessor {
 
+	/**
+	 * Make this go somewhere else.  These aren't really linked this way anymore.  ScrollableResultSetProcessor is
+	 * not tied in yet, so not sure yet exactly how that will play out.
+	 *
+	 * @deprecated Going away!
+	 */
+	@Deprecated
 	public ScrollableResultSetProcessor toOnDemandForm();
 
 	/**

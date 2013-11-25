@@ -30,8 +30,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.Arrays;
 import java.util.Map;
-
-import org.dom4j.Node;
+import java.util.Set;
 
 import org.hibernate.EntityMode;
 import org.hibernate.EntityNameResolver;
@@ -52,6 +51,8 @@ import org.hibernate.persister.entity.Joinable;
 import org.hibernate.proxy.HibernateProxy;
 import org.hibernate.proxy.HibernateProxyHelper;
 import org.hibernate.proxy.LazyInitializer;
+
+import org.dom4j.Node;
 
 /**
  * Handles "any" mappings
@@ -510,6 +511,14 @@ public class AnyType extends AbstractType implements CompositeType, AssociationT
 		throw new UnsupportedOperationException();
 	}
 
+	@Override
+	public String getOnCondition(
+			String alias,
+			SessionFactoryImplementor factory,
+			Map enabledFilters,
+			Set<String> treatAsDeclarations) {
+		throw new UnsupportedOperationException();
+	}
 
 	/**
 	 * Used to externalize discrimination per a given identifier.  For example, when writing to

@@ -1,7 +1,7 @@
 /*
  * Hibernate, Relational Persistence for Idiomatic Java
  *
- * Copyright (c) 2012, Red Hat Inc. or third-party contributors as
+ * Copyright (c) 2013, Red Hat Inc. or third-party contributors as
  * indicated by the @author tags or express copyright attribution
  * statements applied by the authors.  All third-party contributions are
  * distributed under license by Red Hat Inc.
@@ -29,18 +29,21 @@ import org.hibernate.type.Type;
 /**
  * Represent a simple scalar return within a query result.  Generally this would be values of basic (String, Integer,
  * etc) or composite types.
- * <p/>
- * todo : we should link the Returns back to their "source"
- * 		aka the entity/collection/etc that defines the qualifier used to qualify this Return's columns
  *
  * @author Steve Ebersole
  */
 public class ScalarReturn extends AbstractPlanNode implements Return {
+	private final String name;
 	private final Type type;
 
-	public ScalarReturn(SessionFactoryImplementor factory, Type type) {
+	public ScalarReturn(String name, Type type, SessionFactoryImplementor factory) {
 		super( factory );
+		this.name = name;
 		this.type = type;
+	}
+
+	public String getName() {
+		return name;
 	}
 
 	public Type getType() {

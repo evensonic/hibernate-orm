@@ -31,6 +31,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
+import java.util.Set;
 
 import org.hibernate.AssertionFailure;
 import org.hibernate.FetchMode;
@@ -45,7 +46,6 @@ import org.hibernate.cache.spi.entry.StructuredCollectionCacheEntry;
 import org.hibernate.cache.spi.entry.StructuredMapCacheEntry;
 import org.hibernate.cache.spi.entry.UnstructuredCacheEntry;
 import org.hibernate.cfg.Configuration;
-import org.hibernate.cfg.NotYetImplementedException;
 import org.hibernate.collection.spi.PersistentCollection;
 import org.hibernate.dialect.Dialect;
 import org.hibernate.engine.jdbc.batch.internal.BasicBatchKey;
@@ -91,7 +91,6 @@ import org.hibernate.persister.walking.spi.CollectionIndexDefinition;
 import org.hibernate.persister.walking.spi.CompositeCollectionElementDefinition;
 import org.hibernate.persister.walking.spi.CompositionDefinition;
 import org.hibernate.persister.walking.spi.EntityDefinition;
-import org.hibernate.persister.walking.spi.WalkingException;
 import org.hibernate.pretty.MessageHelper;
 import org.hibernate.sql.Alias;
 import org.hibernate.sql.SelectFragment;
@@ -109,6 +108,7 @@ import org.hibernate.type.CollectionType;
 import org.hibernate.type.CompositeType;
 import org.hibernate.type.EntityType;
 import org.hibernate.type.Type;
+
 import org.jboss.logging.Logger;
 
 /**
@@ -671,6 +671,7 @@ public abstract class AbstractCollectionPersister
 		}
 	}
 
+	@Override
 	public void postInstantiate() throws MappingException {
 		initializer = queryLoaderName == null ?
 				createCollectionInitializer( LoadQueryInfluencers.NONE ) :
@@ -687,6 +688,7 @@ public abstract class AbstractCollectionPersister
 		}
 	}
 
+	@Override
 	public void initialize(Serializable key, SessionImplementor session) throws HibernateException {
 		getAppropriateInitializer( key, session ).initialize( key, session );
 	}
@@ -744,14 +746,17 @@ public abstract class AbstractCollectionPersister
 	protected abstract CollectionInitializer createCollectionInitializer(LoadQueryInfluencers loadQueryInfluencers)
 			throws MappingException;
 
+	@Override
 	public CollectionRegionAccessStrategy getCacheAccessStrategy() {
 		return cacheAccessStrategy;
 	}
 
+	@Override
 	public boolean hasCache() {
 		return cacheAccessStrategy != null;
 	}
 
+	@Override
 	public CollectionType getCollectionType() {
 		return collectionType;
 	}
@@ -760,30 +765,36 @@ public abstract class AbstractCollectionPersister
 		return StringHelper.replace( sqlWhereStringTemplate, Template.TEMPLATE, alias );
 	}
 
+	@Override
 	public String getSQLOrderByString(String alias) {
 		return hasOrdering()
 				? orderByTranslation.injectAliases( new StandardOrderByAliasResolver( alias ) )
 				: "";
 	}
 
+	@Override
 	public String getManyToManyOrderByString(String alias) {
 		return hasManyToManyOrdering()
 				? manyToManyOrderByTranslation.injectAliases( new StandardOrderByAliasResolver( alias ) )
 				: "";
 	}
 
+	@Override
 	public FetchMode getFetchMode() {
 		return fetchMode;
 	}
 
+	@Override
 	public boolean hasOrdering() {
 		return hasOrder;
 	}
 
+	@Override
 	public boolean hasManyToManyOrdering() {
 		return isManyToMany() && hasManyToManyOrder;
 	}
 
+	@Override
 	public boolean hasWhere() {
 		return hasWhere;
 	}
@@ -804,30 +815,36 @@ public abstract class AbstractCollectionPersister
 		return sqlDeleteRowString;
 	}
 
+	@Override
 	public Type getKeyType() {
 		return keyType;
 	}
 
+	@Override
 	public Type getIndexType() {
 		return indexType;
 	}
 
+	@Override
 	public Type getElementType() {
 		return elementType;
 	}
 
 	/**
-	 * Return the element class of an array, or null otherwise
+	 * Return the element class of an array, or null otherwise.  needed by arrays
 	 */
-	public Class getElementClass() { // needed by arrays
+	@Override
+	public Class getElementClass() {
 		return elementClass;
 	}
 
+	@Override
 	public Object readElement(ResultSet rs, Object owner, String[] aliases, SessionImplementor session)
 			throws HibernateException, SQLException {
 		return getElementType().nullSafeGet( rs, aliases, session, owner );
 	}
 
+	@Override
 	public Object readIndex(ResultSet rs, String[] aliases, SessionImplementor session)
 			throws HibernateException, SQLException {
 		Object index = getIndexType().nullSafeGet( rs, aliases, session, null );
@@ -845,6 +862,7 @@ public abstract class AbstractCollectionPersister
 		return index;
 	}
 
+	@Override
 	public Object readIdentifier(ResultSet rs, String alias, SessionImplementor session)
 			throws HibernateException, SQLException {
 		Object id = getIdentifierType().nullSafeGet( rs, alias, session, null );
@@ -854,6 +872,7 @@ public abstract class AbstractCollectionPersister
 		return id;
 	}
 
+	@Override
 	public Object readKey(ResultSet rs, String[] aliases, SessionImplementor session)
 			throws HibernateException, SQLException {
 		return getKeyType().nullSafeGet( rs, aliases, session, null );
@@ -933,22 +952,27 @@ public abstract class AbstractCollectionPersister
 		return i + 1;
 	}
 
+	@Override
 	public boolean isPrimitiveArray() {
 		return isPrimitiveArray;
 	}
 
+	@Override
 	public boolean isArray() {
 		return isArray;
 	}
 
+	@Override
 	public String[] getKeyColumnAliases(String suffix) {
 		return new Alias( suffix ).toAliasStrings( keyColumnAliases );
 	}
 
+	@Override
 	public String[] getElementColumnAliases(String suffix) {
 		return new Alias( suffix ).toAliasStrings( elementColumnAliases );
 	}
 
+	@Override
 	public String[] getIndexColumnAliases(String suffix) {
 		if ( hasIndex ) {
 			return new Alias( suffix ).toAliasStrings( indexColumnAliases );
@@ -958,6 +982,7 @@ public abstract class AbstractCollectionPersister
 		}
 	}
 
+	@Override
 	public String getIdentifierColumnAlias(String suffix) {
 		if ( hasIdentifier ) {
 			return new Alias( suffix ).toAliasString( identifierColumnAlias );
@@ -967,6 +992,7 @@ public abstract class AbstractCollectionPersister
 		}
 	}
 
+	@Override
 	public String getIdentifierColumnName() {
 		if ( hasIdentifier ) {
 			return identifierColumnName;
@@ -979,6 +1005,7 @@ public abstract class AbstractCollectionPersister
 	/**
 	 * Generate a list of collection index, key and element columns
 	 */
+	@Override
 	public String selectFragment(String alias, String columnSuffix) {
 		SelectFragment frag = generateSelectFragment( alias, columnSuffix );
 		appendElementColumns( frag, alias );
@@ -1073,19 +1100,22 @@ public abstract class AbstractCollectionPersister
 		}
 	}
 
+	@Override
 	public String[] getIndexColumnNames() {
 		return indexColumnNames;
 	}
 
+	@Override
 	public String[] getIndexFormulas() {
 		return indexFormulas;
 	}
 
+	@Override
 	public String[] getIndexColumnNames(String alias) {
 		return qualify( alias, indexColumnNames, indexFormulaTemplates );
-
 	}
 
+	@Override
 	public String[] getElementColumnNames(String alias) {
 		return qualify( alias, elementColumnNames, elementFormulaTemplates );
 	}
@@ -1104,32 +1134,39 @@ public abstract class AbstractCollectionPersister
 		return result;
 	}
 
+	@Override
 	public String[] getElementColumnNames() {
 		return elementColumnNames; // TODO: something with formulas...
 	}
 
+	@Override
 	public String[] getKeyColumnNames() {
 		return keyColumnNames;
 	}
 
+	@Override
 	public boolean hasIndex() {
 		return hasIndex;
 	}
 
+	@Override
 	public boolean isLazy() {
 		return isLazy;
 	}
 
+	@Override
 	public boolean isInverse() {
 		return isInverse;
 	}
 
+	@Override
 	public String getTableName() {
 		return qualifiedTableName;
 	}
 
 	private BasicBatchKey removeBatchKey;
 
+	@Override
 	public void remove(Serializable id, SessionImplementor session) throws HibernateException {
 		if ( !isInverse && isRowDeleteEnabled() ) {
 
@@ -1209,6 +1246,7 @@ public abstract class AbstractCollectionPersister
 
 	protected BasicBatchKey recreateBatchKey;
 
+	@Override
 	public void recreate(PersistentCollection collection, Serializable id, SessionImplementor session)
 			throws HibernateException {
 
@@ -1322,6 +1360,7 @@ public abstract class AbstractCollectionPersister
 
 	private BasicBatchKey deleteBatchKey;
 
+	@Override
 	public void deleteRows(PersistentCollection collection, Serializable id, SessionImplementor session)
 			throws HibernateException {
 
@@ -1430,6 +1469,7 @@ public abstract class AbstractCollectionPersister
 
 	private BasicBatchKey insertBatchKey;
 
+	@Override
 	public void insertRows(PersistentCollection collection, Serializable id, SessionImplementor session)
 			throws HibernateException {
 
@@ -1524,6 +1564,7 @@ public abstract class AbstractCollectionPersister
 		}
 	}
 
+	@Override
 	public String getRole() {
 		return role;
 	}
@@ -1532,22 +1573,27 @@ public abstract class AbstractCollectionPersister
 		return entityName;
 	}
 
+	@Override
 	public EntityPersister getOwnerEntityPersister() {
 		return ownerPersister;
 	}
 
+	@Override
 	public IdentifierGenerator getIdentifierGenerator() {
 		return identifierGenerator;
 	}
 
+	@Override
 	public Type getIdentifierType() {
 		return identifierType;
 	}
 
+	@Override
 	public boolean hasOrphanDelete() {
 		return hasOrphanDelete;
 	}
 
+	@Override
 	public Type toType(String propertyName) throws QueryException {
 		if ( "index".equals( propertyName ) ) {
 			return indexType;
@@ -1555,8 +1601,10 @@ public abstract class AbstractCollectionPersister
 		return elementPropertyMapping.toType( propertyName );
 	}
 
+	@Override
 	public abstract boolean isManyToMany();
 
+	@Override
 	public String getManyToManyFilterFragment(String alias, Map enabledFilters) {
 		StringBuilder buffer = new StringBuilder();
 		manyToManyFilterHelper.render( buffer, elementPersister.getFilterAliasGenerator(alias), enabledFilters );
@@ -1569,9 +1617,7 @@ public abstract class AbstractCollectionPersister
 		return buffer.toString();
 	}
 
-	/**
-	 * {@inheritDoc}
-	 */
+	@Override
 	public String[] toColumns(String alias, String propertyName) throws QueryException {
 		if ( "index".equals( propertyName ) ) {
 			return qualify( alias, indexColumnNames, indexFormulaTemplates );
@@ -1581,9 +1627,7 @@ public abstract class AbstractCollectionPersister
 
 	private String[] indexFragments;
 
-	/**
-	 * {@inheritDoc}
-	 */
+	@Override
 	public String[] toColumns(String propertyName) throws QueryException {
 		if ( "index".equals( propertyName ) ) {
 			if ( indexFragments == null ) {
@@ -1601,14 +1645,17 @@ public abstract class AbstractCollectionPersister
 		return elementPropertyMapping.toColumns( propertyName );
 	}
 
+	@Override
 	public Type getType() {
 		return elementPropertyMapping.getType(); // ==elementType ??
 	}
 
+	@Override
 	public String getName() {
 		return getRole();
 	}
 
+	@Override
 	public EntityPersister getElementPersister() {
 		if ( elementPersister == null ) {
 			throw new AssertionFailure( "not an association" );
@@ -1616,10 +1663,12 @@ public abstract class AbstractCollectionPersister
 		return elementPersister;
 	}
 
+	@Override
 	public boolean isCollection() {
 		return true;
 	}
 
+	@Override
 	public Serializable[] getCollectionSpaces() {
 		return spaces;
 	}
@@ -1632,6 +1681,7 @@ public abstract class AbstractCollectionPersister
 
 	protected abstract String generateInsertRowString();
 
+	@Override
 	public void updateRows(PersistentCollection collection, Serializable id, SessionImplementor session)
 			throws HibernateException {
 
@@ -1649,6 +1699,7 @@ public abstract class AbstractCollectionPersister
 	protected abstract int doUpdateRows(Serializable key, PersistentCollection collection, SessionImplementor session)
 			throws HibernateException;
 
+	@Override
 	public void processQueuedOps(PersistentCollection collection, Serializable key, SessionImplementor session)
 			throws HibernateException {
 		if ( collection.hasQueuedOperations() ) {
@@ -1659,10 +1710,12 @@ public abstract class AbstractCollectionPersister
 	protected abstract void doProcessQueuedOps(PersistentCollection collection, Serializable key, SessionImplementor session)
 			throws HibernateException;
 
+	@Override
 	public CollectionMetadata getCollectionMetadata() {
 		return this;
 	}
 
+	@Override
 	public SessionFactoryImplementor getFactory() {
 		return factory;
 	}
@@ -1671,16 +1724,37 @@ public abstract class AbstractCollectionPersister
 		return hasWhere() ? " and " + getSQLWhereString( alias ) : "";
 	}
 
-	public String filterFragment(String alias, Map enabledFilters) throws MappingException {
+	protected String filterFragment(String alias, Set<String> treatAsDeclarations) throws MappingException {
+		return hasWhere() ? " and " + getSQLWhereString( alias ) : "";
+	}
 
+	@Override
+	public String filterFragment(String alias, Map enabledFilters) throws MappingException {
 		StringBuilder sessionFilterFragment = new StringBuilder();
 		filterHelper.render( sessionFilterFragment, getFilterAliasGenerator(alias), enabledFilters );
 
 		return sessionFilterFragment.append( filterFragment( alias ) ).toString();
 	}
 
+	@Override
+	public String filterFragment(
+			String alias,
+			Map enabledFilters,
+			Set<String> treatAsDeclarations) {
+		StringBuilder sessionFilterFragment = new StringBuilder();
+		filterHelper.render( sessionFilterFragment, getFilterAliasGenerator(alias), enabledFilters );
+
+		return sessionFilterFragment.append( filterFragment( alias, treatAsDeclarations ) ).toString();
+	}
+
+	@Override
 	public String oneToManyFilterFragment(String alias) throws MappingException {
 		return "";
+	}
+
+	@Override
+	public String oneToManyFilterFragment(String alias, Set<String> treatAsDeclarations) {
+		return oneToManyFilterFragment( alias );
 	}
 
 	protected boolean isInsertCallable() {
@@ -1715,22 +1789,27 @@ public abstract class AbstractCollectionPersister
 		return deleteAllCheckStyle;
 	}
 
+	@Override
 	public String toString() {
 		return StringHelper.unqualify( getClass().getName() ) + '(' + role + ')';
 	}
 
+	@Override
 	public boolean isVersioned() {
 		return isVersioned && getOwnerEntityPersister().isVersioned();
 	}
 
+	@Override
 	public String getNodeName() {
 		return nodeName;
 	}
 
+	@Override
 	public String getElementNodeName() {
 		return elementNodeName;
 	}
 
+	@Override
 	public String getIndexNodeName() {
 		return indexNodeName;
 	}
@@ -1745,10 +1824,12 @@ public abstract class AbstractCollectionPersister
 		return sqlExceptionHelper;
 	}
 
+	@Override
 	public CacheEntryStructure getCacheEntryStructure() {
 		return cacheEntryStructure;
 	}
 
+	@Override
 	public boolean isAffectedByEnabledFilters(SessionImplementor session) {
 		return filterHelper.isAffectedBy( session.getEnabledFilters() ) ||
 				( isManyToMany() && manyToManyFilterHelper.isAffectedBy( session.getEnabledFilters() ) );
@@ -1758,18 +1839,20 @@ public abstract class AbstractCollectionPersister
 		return subselectLoadable;
 	}
 
+	@Override
 	public boolean isMutable() {
 		return isMutable;
 	}
 
+	@Override
 	public String[] getCollectionPropertyColumnAliases(String propertyName, String suffix) {
-		String rawAliases[] = (String[]) collectionPropertyColumnAliases.get( propertyName );
+		String[] rawAliases = (String[]) collectionPropertyColumnAliases.get( propertyName );
 
 		if ( rawAliases == null ) {
 			return null;
 		}
 
-		String result[] = new String[rawAliases.length];
+		String[] result = new String[rawAliases.length];
 		for ( int i = 0; i < rawAliases.length; i++ ) {
 			result[i] = new Alias( suffix ).toUnquotedAliasString( rawAliases[i] );
 		}
@@ -1810,6 +1893,7 @@ public abstract class AbstractCollectionPersister
 
 	}
 
+	@Override
 	public int getSize(Serializable key, SessionImplementor session) {
 		try {
 			PreparedStatement st = session.getTransactionCoordinator()
@@ -1840,10 +1924,12 @@ public abstract class AbstractCollectionPersister
 		}
 	}
 
+	@Override
 	public boolean indexExists(Serializable key, Object index, SessionImplementor session) {
 		return exists( key, incrementIndexByBase( index ), getIndexType(), sqlDetectRowByIndexString, session );
 	}
 
+	@Override
 	public boolean elementExists(Serializable key, Object element, SessionImplementor session) {
 		return exists( key, element, getElementType(), sqlDetectRowByElementString, session );
 	}
@@ -1882,6 +1968,7 @@ public abstract class AbstractCollectionPersister
 		}
 	}
 
+	@Override
 	public Object getElementByIndex(Serializable key, Object index, SessionImplementor session, Object owner) {
 		try {
 			PreparedStatement st = session.getTransactionCoordinator()
@@ -1918,6 +2005,7 @@ public abstract class AbstractCollectionPersister
 		}
 	}
 
+	@Override
 	public boolean isExtraLazy() {
 		return isExtraLazy;
 	}
@@ -1936,10 +2024,12 @@ public abstract class AbstractCollectionPersister
 		return initializer;
 	}
 
+	@Override
 	public int getBatchSize() {
 		return batchSize;
 	}
 
+	@Override
 	public String getMappedByProperty() {
 		return mappedByProperty;
 	}
@@ -1991,8 +2081,8 @@ public abstract class AbstractCollectionPersister
 
 			@Override
 			public EntityDefinition toEntityDefinition() {
-				if ( getType().isComponentType() ) {
-					throw new IllegalStateException( "Cannot treat composite collection index type as entity" );
+				if ( !getType().isEntityType() ) {
+					throw new IllegalStateException( "Cannot treat collection index type as entity" );
 				}
 				return (EntityPersister) ( (AssociationType) getIndexType() ).getAssociatedJoinable( getFactory() );
 			}
@@ -2000,7 +2090,7 @@ public abstract class AbstractCollectionPersister
 			@Override
 			public CompositionDefinition toCompositeDefinition() {
 				if ( ! getType().isComponentType() ) {
-					throw new IllegalStateException( "Cannot treat entity collection index type as composite" );
+					throw new IllegalStateException( "Cannot treat collection index type as composite" );
 				}
 				return new CompositeCollectionElementDefinition() {
 					@Override
@@ -2035,6 +2125,15 @@ public abstract class AbstractCollectionPersister
 					}
 				};
 			}
+
+			@Override
+			public AnyMappingDefinition toAnyMappingDefinition() {
+				final Type type = getType();
+				if ( ! type.isAnyType() ) {
+					throw new IllegalStateException( "Cannot treat collection index type as ManyToAny" );
+				}
+				return new StandardAnyTypeDefinition( (AnyType) type, isLazy() || isExtraLazy() );
+			}
 		};
 	}
 
@@ -2055,15 +2154,15 @@ public abstract class AbstractCollectionPersister
 			public AnyMappingDefinition toAnyMappingDefinition() {
 				final Type type = getType();
 				if ( ! type.isAnyType() ) {
-					throw new WalkingException( "Cannot treat collection element type as ManyToAny" );
+					throw new IllegalStateException( "Cannot treat collection element type as ManyToAny" );
 				}
 				return new StandardAnyTypeDefinition( (AnyType) type, isLazy() || isExtraLazy() );
 			}
 
 			@Override
 			public EntityDefinition toEntityDefinition() {
-				if ( getType().isComponentType() ) {
-					throw new WalkingException( "Cannot treat composite collection element type as entity" );
+				if ( !getType().isEntityType() ) {
+					throw new IllegalStateException( "Cannot treat collection element type as entity" );
 				}
 				return getElementPersister();
 			}
@@ -2072,7 +2171,7 @@ public abstract class AbstractCollectionPersister
 			public CompositeCollectionElementDefinition toCompositeElementDefinition() {
 
 				if ( ! getType().isComponentType() ) {
-					throw new WalkingException( "Cannot treat entity collection element type as composite" );
+					throw new IllegalStateException( "Cannot treat entity collection element type as composite" );
 				}
 
 				return new CompositeCollectionElementDefinition() {

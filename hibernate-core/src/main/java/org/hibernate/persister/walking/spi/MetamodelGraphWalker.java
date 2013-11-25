@@ -26,8 +26,6 @@ package org.hibernate.persister.walking.spi;
 import java.util.HashSet;
 import java.util.Set;
 
-import org.jboss.logging.Logger;
-
 import org.hibernate.engine.spi.SessionFactoryImplementor;
 import org.hibernate.loader.PropertyPath;
 import org.hibernate.persister.collection.CollectionPersister;
@@ -35,11 +33,13 @@ import org.hibernate.persister.collection.QueryableCollection;
 import org.hibernate.persister.entity.EntityPersister;
 import org.hibernate.type.Type;
 
+import org.jboss.logging.Logger;
+
 /**
  * Implements metamodel graph walking.  In layman terms, we are walking the graph of the users domain model as
  * defined/understood by mapped associations.
  * <p/>
- * Initially grew as a part of the re-implementation of the legacy JoinWalker functional to instead build LoadPlans.
+ * Initially grew as a part of the re-implementation of the legacy JoinWalker functionality to instead build LoadPlans.
  * But this is really quite simple walking.  Interesting events are handled by calling out to
  * implementations of {@link AssociationVisitationStrategy} which really provide the real functionality of what we do
  * as we walk.
@@ -128,12 +128,12 @@ public class MetamodelGraphWalker {
 			final EncapsulatedEntityIdentifierDefinition idAsEncapsulated = (EncapsulatedEntityIdentifierDefinition) identifierDefinition;
 			final AttributeDefinition idAttr = idAsEncapsulated.getAttributeDefinition();
 			if ( CompositionDefinition.class.isInstance( idAttr ) ) {
-				visitAttributes( (CompositionDefinition) idAttr );
+				visitCompositeDefinition( (CompositionDefinition) idAttr );
 			}
 		}
 		else {
 			// NonEncapsulatedEntityIdentifierDefinition itself is defined as a CompositionDefinition
-			visitAttributes( (NonEncapsulatedEntityIdentifierDefinition) identifierDefinition );
+			visitCompositeDefinition( (NonEncapsulatedEntityIdentifierDefinition) identifierDefinition );
 		}
 
 		strategy.finishingEntityIdentifier( identifierDefinition );
@@ -196,7 +196,7 @@ public class MetamodelGraphWalker {
 
 		final AssociationAttributeDefinition.AssociationNature nature = attribute.getAssociationNature();
 		if ( nature == AssociationAttributeDefinition.AssociationNature.ANY ) {
-			visitAnyDefinition( attribute, attribute.toAnyDefinition() );
+			visitAnyDefinition( attribute.toAnyDefinition() );
 		}
 		else if ( nature == AssociationAttributeDefinition.AssociationNature.COLLECTION ) {
 			visitCollectionDefinition( attribute.toCollectionDefinition() );
@@ -206,8 +206,8 @@ public class MetamodelGraphWalker {
 		}
 	}
 
-	private void visitAnyDefinition(AssociationAttributeDefinition attributeDefinition, AnyMappingDefinition anyDefinition) {
-		strategy.foundAny( attributeDefinition, anyDefinition );
+	private void visitAnyDefinition(AnyMappingDefinition anyDefinition) {
+		strategy.foundAny( anyDefinition );
 	}
 
 	private void visitCompositeDefinition(CompositionDefinition compositionDefinition) {
@@ -240,8 +240,11 @@ public class MetamodelGraphWalker {
 
 		try {
 			final Type collectionIndexType = collectionIndexDefinition.getType();
-			if ( collectionIndexType.isComponentType() ) {
-				visitAttributes( collectionIndexDefinition.toCompositeDefinition() );
+			if ( collectionIndexType.isAnyType() ) {
+				visitAnyDefinition( collectionIndexDefinition.toAnyMappingDefinition() );
+			}
+			else if ( collectionIndexType.isComponentType() ) {
+				visitCompositeDefinition( collectionIndexDefinition.toCompositeDefinition() );
 			}
 			else if ( collectionIndexType.isAssociationType() ) {
 				visitEntityDefinition( collectionIndexDefinition.toEntityDefinition() );
@@ -258,10 +261,14 @@ public class MetamodelGraphWalker {
 		final CollectionElementDefinition elementDefinition = collectionDefinition.getElementDefinition();
 		strategy.startingCollectionElements( elementDefinition );
 
-		if ( elementDefinition.getType().isComponentType() ) {
-			visitAttributes( elementDefinition.toCompositeElementDefinition() );
+		final Type collectionElementType = elementDefinition.getType();
+		if ( collectionElementType.isAnyType() ) {
+			visitAnyDefinition( elementDefinition.toAnyMappingDefinition() );
 		}
-		else if ( elementDefinition.getType().isEntityType() ) {
+		else if ( collectionElementType.isComponentType() ) {
+			visitCompositeDefinition( elementDefinition.toCompositeElementDefinition() );
+		}
+		else if ( collectionElementType.isEntityType() ) {
 			if ( ! collectionDefinition.getCollectionPersister().isOneToMany() ) {
 				final QueryableCollection queryableCollection = (QueryableCollection) collectionDefinition.getCollectionPersister();
 				addAssociationKey(

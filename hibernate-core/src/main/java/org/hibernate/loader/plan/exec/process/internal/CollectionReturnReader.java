@@ -23,49 +23,21 @@
  */
 package org.hibernate.loader.plan.exec.process.internal;
 
-import java.io.Serializable;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 
-import org.hibernate.engine.spi.EntityKey;
 import org.hibernate.loader.plan.exec.process.spi.ResultSetProcessingContext;
 import org.hibernate.loader.plan.exec.process.spi.ReturnReader;
-import org.hibernate.loader.plan.exec.spi.CollectionReferenceAliases;
 import org.hibernate.loader.plan.spi.CollectionReturn;
 
 /**
  * @author Steve Ebersole
  */
-public class CollectionReturnReader extends CollectionReferenceReader implements ReturnReader {
+public class CollectionReturnReader implements ReturnReader {
 	private final CollectionReturn collectionReturn;
 
-	public CollectionReturnReader(CollectionReturn collectionReturn, CollectionReferenceAliases aliases) {
-		super( collectionReturn, aliases );
+	public CollectionReturnReader(CollectionReturn collectionReturn) {
 		this.collectionReturn = collectionReturn;
-	}
-
-	@Override
-	protected Object findCollectionOwner(
-			Serializable collectionRowKey,
-			ResultSet resultSet,
-			ResultSetProcessingContextImpl context) {
-		if ( context.shouldUseOptionalEntityInformation() ) {
-			final Object optionalEntityInstance = context.getQueryParameters().getOptionalObject();
-			if ( optionalEntityInstance != null ) {
-				return optionalEntityInstance;
-			}
-		}
-		return super.findCollectionOwner( collectionRowKey, resultSet, context );
-	}
-
-	@Override
-	protected Serializable findCollectionOwnerKey(ResultSetProcessingContext context) {
-		final EntityKey entityKey = context.shouldUseOptionalEntityInformation()
-				? ResultSetProcessorHelper.getOptionalObjectKey( context.getQueryParameters(), context.getSession() )
-				: null;
-		return entityKey == null
-				? super.findCollectionOwnerKey( context )
-				: entityKey;
 	}
 
 	@Override

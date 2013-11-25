@@ -69,6 +69,7 @@ import org.hibernate.loader.hql.QueryLoader;
 import org.hibernate.param.ParameterSpecification;
 import org.hibernate.persister.entity.Queryable;
 import org.hibernate.type.Type;
+
 import org.jboss.logging.Logger;
 
 import antlr.ANTLRException;
@@ -366,9 +367,10 @@ public class QueryTranslatorImpl implements FilterTranslator {
 			throws HibernateException {
 		// Delegate to the QueryLoader...
 		errorIfDML();
-		QueryNode query = ( QueryNode ) sqlAst;
-		boolean hasLimit = queryParameters.getRowSelection() != null && queryParameters.getRowSelection().definesLimits();
-		boolean needsDistincting = ( query.getSelectClause().isDistinct() || hasLimit ) && containsCollectionFetches();
+
+		final QueryNode query = (QueryNode) sqlAst;
+		final boolean hasLimit = queryParameters.getRowSelection() != null && queryParameters.getRowSelection().definesLimits();
+		final boolean needsDistincting = ( query.getSelectClause().isDistinct() || hasLimit ) && containsCollectionFetches();
 
 		QueryParameters queryParametersToUse;
 		if ( hasLimit && containsCollectionFetches() ) {
@@ -483,7 +485,7 @@ public class QueryTranslatorImpl implements FilterTranslator {
 	@Override
 	public boolean containsCollectionFetches() {
 		errorIfDML();
-		List collectionFetches = ( ( QueryNode ) sqlAst ).getFromClause().getCollectionFetches();
+		List collectionFetches = ( (QueryNode) sqlAst ).getFromClause().getCollectionFetches();
 		return collectionFetches != null && collectionFetches.size() > 0;
 	}
 	@Override
@@ -498,7 +500,7 @@ public class QueryTranslatorImpl implements FilterTranslator {
 
 		errorIfDML();
 
-		QueryNode query = ( QueryNode ) sqlAst;
+		final QueryNode query = (QueryNode) sqlAst;
 
 		// If there are no collection fetches, then no further checks are needed
 		List collectionFetches = query.getFromClause().getCollectionFetches();
@@ -540,8 +542,8 @@ public class QueryTranslatorImpl implements FilterTranslator {
 			// TODO : this is a bit dodgy, come up with a better way to check this (plus see above comment)
 			String [] idColNames = owner.getQueryable().getIdentifierColumnNames();
 			String expectedPrimaryOrderSeq = StringHelper.join(
-			        ", ",
-			        StringHelper.qualify( owner.getTableAlias(), idColNames )
+					", ",
+					StringHelper.qualify( owner.getTableAlias(), idColNames )
 			);
 			if (  !primaryOrdering.getText().startsWith( expectedPrimaryOrderSeq ) ) {
 				throw new HibernateException( "cannot scroll results with collection fetches which are not ordered primarily by the root entity's PK" );
@@ -550,10 +552,10 @@ public class QueryTranslatorImpl implements FilterTranslator {
 	}
 
 	private StatementExecutor buildAppropriateStatementExecutor(HqlSqlWalker walker) {
-		Statement statement = ( Statement ) walker.getAST();
+		final Statement statement = (Statement) walker.getAST();
 		if ( walker.getStatementType() == HqlSqlTokenTypes.DELETE ) {
-			FromElement fromElement = walker.getFinalFromClause().getFromElement();
-			Queryable persister = fromElement.getQueryable();
+			final FromElement fromElement = walker.getFinalFromClause().getFromElement();
+			final Queryable persister = fromElement.getQueryable();
 			if ( persister.isMultiTable() ) {
 				return new MultiTableDeleteExecutor( walker );
 			}
@@ -562,8 +564,8 @@ public class QueryTranslatorImpl implements FilterTranslator {
 			}
 		}
 		else if ( walker.getStatementType() == HqlSqlTokenTypes.UPDATE ) {
-			FromElement fromElement = walker.getFinalFromClause().getFromElement();
-			Queryable persister = fromElement.getQueryable();
+			final FromElement fromElement = walker.getFinalFromClause().getFromElement();
+			final Queryable persister = fromElement.getQueryable();
 			if ( persister.isMultiTable() ) {
 				// even here, if only properties mapped to the "base table" are referenced
 				// in the set and where clauses, this could be handled by the BasicDelegate.
@@ -575,7 +577,7 @@ public class QueryTranslatorImpl implements FilterTranslator {
 			}
 		}
 		else if ( walker.getStatementType() == HqlSqlTokenTypes.INSERT ) {
-			return new BasicExecutor( walker, ( ( InsertStatement ) statement ).getIntoClause().getQueryable() );
+			return new BasicExecutor( walker, ( (InsertStatement) statement ).getIntoClause().getQueryable() );
 		}
 		else {
 			throw new QueryException( "Unexpected statement type" );
@@ -605,9 +607,11 @@ public class QueryTranslatorImpl implements FilterTranslator {
 		public void visit(AST node) {
 			if ( dotRoot != null ) {
 				// we are already processing a dot-structure
-                if (ASTUtil.isSubtreeChild(dotRoot, node)) return;
-                // we are now at a new tree level
-                dotRoot = null;
+				if ( ASTUtil.isSubtreeChild( dotRoot, node ) ) {
+					return;
+				}
+				// we are now at a new tree level
+				dotRoot = null;
 			}
 
 			if ( node.getType() == HqlTokenTypes.DOT ) {
@@ -616,8 +620,8 @@ public class QueryTranslatorImpl implements FilterTranslator {
 			}
 		}
 		private void handleDotStructure(AST dotStructureRoot) {
-			String expression = ASTUtil.getPathText( dotStructureRoot );
-			Object constant = ReflectHelper.getConstantValue( expression );
+			final String expression = ASTUtil.getPathText( dotStructureRoot );
+			final Object constant = ReflectHelper.getConstantValue( expression );
 			if ( constant != null ) {
 				dotStructureRoot.setFirstChild( null );
 				dotStructureRoot.setType( HqlTokenTypes.JAVA_CONSTANT );

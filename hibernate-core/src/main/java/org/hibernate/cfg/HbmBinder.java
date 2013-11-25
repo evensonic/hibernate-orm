@@ -30,11 +30,6 @@ import java.util.Iterator;
 import java.util.Properties;
 import java.util.StringTokenizer;
 
-import org.dom4j.Attribute;
-import org.dom4j.Document;
-import org.dom4j.Element;
-import org.jboss.logging.Logger;
-
 import org.hibernate.CacheMode;
 import org.hibernate.EntityMode;
 import org.hibernate.FetchMode;
@@ -96,13 +91,18 @@ import org.hibernate.mapping.TypeDef;
 import org.hibernate.mapping.UnionSubclass;
 import org.hibernate.mapping.UniqueKey;
 import org.hibernate.mapping.Value;
+import org.hibernate.tuple.GeneratedValueGeneration;
 import org.hibernate.tuple.GenerationTiming;
-import org.hibernate.tuple.ValueGeneration;
-import org.hibernate.tuple.ValueGenerator;
 import org.hibernate.type.BasicType;
 import org.hibernate.type.DiscriminatorType;
 import org.hibernate.type.ForeignKeyDirection;
 import org.hibernate.type.Type;
+
+import org.jboss.logging.Logger;
+
+import org.dom4j.Attribute;
+import org.dom4j.Document;
+import org.dom4j.Element;
 
 /**
  * Walks an XML mapping document and produces the Hibernate configuration-time metamodel (the
@@ -1307,7 +1307,7 @@ public final class HbmBinder {
 		if ( generationTiming == GenerationTiming.ALWAYS || generationTiming == GenerationTiming.INSERT ) {
 			// we had generation specified...
 			//   	HBM only supports "database generated values"
-			property.setValueGenerationStrategy( new HbmDefinedValueGeneration( generationTiming ) );
+			property.setValueGenerationStrategy( new GeneratedValueGeneration( generationTiming ) );
 
 			// generated properties can *never* be insertable...
 			if ( property.isInsertable() ) {
@@ -1368,37 +1368,6 @@ public final class HbmBinder {
 
 		property.setMetaAttributes( getMetas( node, inheritedMetas ) );
 
-	}
-
-	private static class HbmDefinedValueGeneration implements ValueGeneration {
-		private final GenerationTiming timing;
-
-		private HbmDefinedValueGeneration(GenerationTiming timing) {
-			this.timing = timing;
-		}
-
-		@Override
-		public GenerationTiming getGenerationTiming() {
-			return timing;
-		}
-
-		@Override
-		public ValueGenerator getValueGenerator() {
-			// database generated values do not have a value generator
-			return null;
-		}
-
-		@Override
-		public boolean referenceColumnInSql() {
-			// historically these columns are not referenced in the SQL
-			return false;
-		}
-
-		@Override
-		public String getDatabaseGeneratedReferencedColumnValue() {
-			// the column is not referenced in the sql.
-			return null;
-		}
 	}
 
 	private static String columns(Value val) {
@@ -2126,21 +2095,41 @@ public final class HbmBinder {
 				}
 			}
 			else {
-				// use old (HB 2.1) defaults if outer-join is specified
-				String eoj = jfNode.getValue();
-				if ( "auto".equals( eoj ) ) {
-					fetchStyle = FetchMode.DEFAULT;
+				if ( "many-to-many".equals( node.getName() ) ) {
+					//NOTE <many-to-many outer-join="..." is deprecated.:
+					// Default to join and non-lazy for the "second join"
+					// of the many-to-many
+					LOG.deprecatedManyToManyOuterJoin();
+					lazy = false;
+					fetchStyle = FetchMode.JOIN;
 				}
 				else {
-					boolean join = "true".equals( eoj );
-					fetchStyle = join ? FetchMode.JOIN : FetchMode.SELECT;
+					// use old (HB 2.1) defaults if outer-join is specified
+					String eoj = jfNode.getValue();
+					if ( "auto".equals( eoj ) ) {
+						fetchStyle = FetchMode.DEFAULT;
+					}
+					else {
+						boolean join = "true".equals( eoj );
+						fetchStyle = join ? FetchMode.JOIN : FetchMode.SELECT;
+					}
 				}
 			}
 		}
 		else {
-			boolean join = "join".equals( fetchNode.getValue() );
-			//lazy = !join;
-			fetchStyle = join ? FetchMode.JOIN : FetchMode.SELECT;
+			if ( "many-to-many".equals( node.getName() ) ) {
+				//NOTE <many-to-many fetch="..." is deprecated.:
+				// Default to join and non-lazy for the "second join"
+				// of the many-to-many
+				LOG.deprecatedManyToManyFetch();
+				lazy = false;
+				fetchStyle = FetchMode.JOIN;
+			}
+			else {
+				boolean join = "join".equals( fetchNode.getValue() );
+				//lazy = !join;
+				fetchStyle = join ? FetchMode.JOIN : FetchMode.SELECT;
+			}
 		}
 		model.setFetchMode( fetchStyle );
 		model.setLazy(lazy);

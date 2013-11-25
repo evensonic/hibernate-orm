@@ -2,17 +2,19 @@ apply plugin: 'eclipse'
 apply plugin: 'idea'
 apply from: "./libraries.gradle"
 
-task wrapper(type: Wrapper) {
-    gradleVersion = '1.7'
-}
-
 allprojects {
     repositories {
         mavenCentral()
         mavenLocal()
 
-        mavenRepo name: 'jboss-nexus', url: "http://repository.jboss.org/nexus/content/groups/public/"
-        mavenRepo name: "jboss-snapshots", url: "http://snapshots.jboss.org/maven2/"
+        maven {
+            name 'jboss-nexus'
+            url "http://repository.jboss.org/nexus/content/groups/public/"
+        }
+        maven {
+            name "jboss-snapshots"
+            url "http://snapshots.jboss.org/maven2/"
+        }
     }
 }
 
@@ -21,8 +23,14 @@ buildscript {
         mavenCentral()
         mavenLocal()
 
-        mavenRepo name: 'jboss-nexus', url: "http://repository.jboss.org/nexus/content/groups/public/"
-        mavenRepo name: "jboss-snapshots", url: "http://snapshots.jboss.org/maven2/"
+        maven {
+            name 'jboss-nexus'
+            url "http://repository.jboss.org/nexus/content/groups/public/"
+        }
+        maven {
+            name "jboss-snapshots"
+            url "http://snapshots.jboss.org/maven2/"
+        }
     }
     dependencies {
         classpath 'org.hibernate.build.gradle:gradle-maven-publish-auth:2.0.1'
@@ -31,8 +39,15 @@ buildscript {
     }
 }
 
-ext.hibernateTargetVersion = '4.3.0-SNAPSHOT'
-ext.javaLanguageLevel = "1.6"
+ext {
+    expectedGradleVersion = '1.9'
+    hibernateTargetVersion = '4.3.0-SNAPSHOT'
+    javaLanguageLevel = '1.6'
+
+    // The OSGi manifest exported package versions need to be only the numerical release -- no "SNAPSHOT" or "Final"
+    // todo  : brett - what about Alpha, Beta, CR, SP, etc?
+    osgiExportVersion = hibernateTargetVersion.replaceAll( "-SNAPSHOT", "" ).replaceAll( ".Final", "" );
+}
 
 idea {
     project {
@@ -73,9 +88,7 @@ subprojects { subProject ->
 
     group = 'org.hibernate'
     version = rootProject.hibernateTargetVersion
-    // The OSGi manifest exported package versions need to be only the numerical release -- no "SNAPSHOT" or "Final"
-    exportPackageVersion = version.replaceAll("-SNAPSHOT", "");
-    exportPackageVersion = exportPackageVersion.replaceAll(".Final", "");
+    ext.exportPackageVersion = rootProject.osgiExportVersion
 
     // minimize changes, at least for now (gradle uses 'build' by default)..
     buildDir = "target"
@@ -86,7 +99,7 @@ subprojects { subProject ->
         apply plugin: 'maven' // temporary, still needed for install task until bug with publishToMavenLocal task is fixed
         apply plugin: 'osgi'
 
-        apply from: "../utilities.gradle"
+        apply from: "${rootProject.projectDir}/utilities.gradle"
 
         apply plugin: 'findbugs'
         apply plugin: 'checkstyle'
@@ -100,9 +113,6 @@ subprojects { subProject ->
             }
             jbossLoggingTool {
                 description = "Dependencies for running the JBoss logging AnnotationProcessor tool"
-            }
-            hibernateJpaModelGenTool {
-                description = "Dependencies for running the Hibernate JPA Metamodel Generator AnnotationProcessor tool"
             }
             jaxb {
                 description = 'Dependencies for running ant xjc (jaxb class generation)'
@@ -129,8 +139,6 @@ subprojects { subProject ->
             testRuntime( libraries.h2 )
 
             jbossLoggingTool( libraries.logging_processor )
-
-            hibernateJpaModelGenTool( libraries.jpa_modelgen )
 
             jaxb( libraries.jaxb ){
                 exclude group: "javax.xml.stream"
@@ -162,51 +170,44 @@ subprojects { subProject ->
         }
 
         sourceSets.all {
-            ext.originalJavaSrcDirs = java.srcDirs
-            ext.generatedLoggingSrcDir = file( "${buildDir}/generated-src/logging/${name}" )
-            java.srcDir generatedLoggingSrcDir
+            ext.aptGeneratedSourceDir = file( "${buildDir}/generated-src/apt/${name}" )
         }
 
-        task generateMainLoggingClasses(type: JavaCompile) {
-            ext.aptDumpDir = subProject.file( "${buildDir}/tmp/apt/logging" )
-            classpath = compileJava.classpath + configurations.jbossLoggingTool
-            source = sourceSets.main.originalJavaSrcDirs
-            destinationDir = aptDumpDir
-            options.define(
-                    compilerArgs: [
-                            "-nowarn",
-                            "-proc:only",
-                            "-encoding", "UTF-8",
-                            "-processor", "org.jboss.logging.processor.apt.LoggingToolsProcessor",
-                            "-s", "$sourceSets.main.generatedLoggingSrcDir.absolutePath",
-//                            "-AloggingVersion=3.0",
-                            "-Adebug=true",
-                            "-AskipTranslations=true",
-                            "-source", rootProject.javaLanguageLevel,
-                            "-target", rootProject.javaLanguageLevel,
-                            "-AtranslationFilesPath=${project.rootDir}/src/main/resources"
+        ext.standardJavacOptions = [
+                "-nowarn",
+                "-encoding", "UTF-8",
+                "-source", rootProject.javaLanguageLevel,
+                "-target", rootProject.javaLanguageLevel
+        ]
 
-                    ]
-            );
-            outputs.dir sourceSets.main.generatedLoggingSrcDir;
+        tasks.withType( JavaCompile.class ).all { task->
+            task.options.define(
+                    compilerArgs: standardJavacOptions
+            )
+        }
+
+        ext.jbossLoggingToolClass = "org.jboss.logging.processor.apt.LoggingToolsProcessor"
+
+        // alter the compileJava (src/main/java javac task) to add JBoss Logging AP hooks
+        compileJava {
+            classpath += configurations.jbossLoggingTool
+
+            options.compilerArgs += [
+                    "-processor", jbossLoggingToolClass,
+                    "-s", "$sourceSets.main.aptGeneratedSourceDir.absolutePath",
+                    "-Adebug=true",
+                    "-AskipTranslations=true",
+                    "-AtranslationFilesPath=${project.rootDir}/src/main/resources"
+            ]
+
             doFirst {
-//                source = sourceSets.main.originalJavaSrcDirs
-                sourceSets.main.generatedLoggingSrcDir.mkdirs()
-            }
-            doLast {
-                aptDumpDir.delete()
+                if ( !sourceSets.main.aptGeneratedSourceDir.exists() ) {
+                    sourceSets.main.aptGeneratedSourceDir.mkdirs()
+                }
             }
         }
 
-        // for the time being eat the annoying output from running the annotation processors
-        generateMainLoggingClasses.logging.captureStandardError(LogLevel.INFO)
-
-        task generateSources( type: Task )
-        generateSources.dependsOn generateMainLoggingClasses
-
-        compileJava.dependsOn generateMainLoggingClasses
-        compileJava.options.define(compilerArgs: ["-proc:none", "-encoding", "UTF-8"])
-        compileTestJava.options.define(compilerArgs: ["-proc:none", "-encoding", "UTF-8"])
+        task generateSources(type: Task)
 
         jar {
             Set<String> exportPackages = new HashSet<String>()
@@ -318,7 +319,9 @@ subprojects { subProject ->
         }
 
         // eclipseClasspath will not add sources to classpath unless the dirs actually exist.
-        eclipseClasspath.dependsOn("generateSources")
+        // TODO: Eclipse's annotation processor handling is also fairly stupid (and completely lacks in the
+        // Gradle plugin).  For now, just compile first in order to get the logging classes.
+        eclipseClasspath.dependsOn("testClasses")
 
 
         // Animal Sniffer ~~~~~~~~~~~~~~~~~~
@@ -354,7 +357,7 @@ subprojects { subProject ->
             checkstyleClasspath = checkstyleMain.checkstyleClasspath
             classpath = checkstyleMain.classpath
             configFile = rootProject.file( 'shared/config/checkstyle/checkstyle.xml' )
-            source subProject.sourceSets.main.originalJavaSrcDirs
+            source subProject.sourceSets.main.java.srcDirs
             // exclude generated sources
             exclude '**/generated-src/**'
             // because cfg package is a mess mainly from annotation stuff
@@ -477,9 +480,11 @@ subprojects { subProject ->
                     }
                 }
             }
+        }
 
-            generatePomFileForMavenJavaPublication {
-                destination = file("$buildDir/generated-pom.xml")
+        model {
+            tasks.generatePomFileForMavenJavaPublication {
+                destination = file( "$project.buildDir/generated-pom.xml" )
             }
         }
 
@@ -492,3 +497,7 @@ subprojects { subProject ->
 }
 
 task release(type: Task, dependsOn: 'release:release')
+
+task wrapper(type: Wrapper) {
+    gradleVersion = expectedGradleVersion
+}

@@ -30,7 +30,7 @@ ext {
     junitVersion = '4.11'
     h2Version = '1.2.145'
     bytemanVersion = '2.1.2'
-    infinispanVersion = '5.3.0.Final'
+    infinispanVersion = '6.0.0.Final'
     jnpVersion = '5.0.6.CR1'
 
     libraries = [
@@ -62,6 +62,9 @@ ext {
             logging_annotations: 'org.jboss.logging:jboss-logging-annotations:1.2.0.Beta1',
             logging_processor:  'org.jboss.logging:jboss-logging-processor:1.2.0.Beta1',
 
+            slf4j_api:                 "org.slf4j:slf4j-api:1.7.5",
+            slf4j_log4j:               "org.slf4j:slf4j-log4j12:1.7.5",
+
             // jaxb task
             jaxb:           'com.sun.xml.bind:jaxb-xjc:2.1.6',
             jaxb2_basics:   'org.jvnet.jaxb2_commons:jaxb2-basics:0.6.0',
@@ -84,7 +87,6 @@ ext {
             byteman:         "org.jboss.byteman:byteman:${bytemanVersion}",
             byteman_install: "org.jboss.byteman:byteman-install:${bytemanVersion}",
             byteman_bmunit:  "org.jboss.byteman:byteman-bmunit:${bytemanVersion}",
-            jpa_modelgen:    'org.hibernate:hibernate-jpamodelgen:1.1.1.Final',
             shrinkwrap_api:  'org.jboss.shrinkwrap:shrinkwrap-api:1.0.0-beta-6',
             shrinkwrap:      'org.jboss.shrinkwrap:shrinkwrap-impl-base:1.0.0-beta-6',
             validator:       'org.hibernate:hibernate-validator:5.0.1.Final',

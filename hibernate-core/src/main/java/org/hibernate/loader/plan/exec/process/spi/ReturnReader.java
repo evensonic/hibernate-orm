@@ -40,7 +40,7 @@ public interface ReturnReader {
 	 *
 	 * @return The read object
 	 *
-	 * @throws SQLException Indicates a problem access the JDBC result set
+	 * @throws java.sql.SQLException Indicates a problem access the JDBC result set
 	 */
 	public Object read(ResultSet resultSet, ResultSetProcessingContext context) throws SQLException;
 }

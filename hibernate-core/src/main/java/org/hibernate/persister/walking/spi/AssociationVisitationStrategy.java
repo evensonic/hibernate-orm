@@ -23,7 +23,7 @@
  */
 package org.hibernate.persister.walking.spi;
 
-import org.hibernate.loader.plan2.spi.FetchSource;
+import org.hibernate.loader.plan.spi.FetchSource;
 
 /**
  * Strategy for walking associations as defined by the Hibernate metamodel.  Is essentially a callback listener for
@@ -165,7 +165,7 @@ public interface AssociationVisitationStrategy {
 	 */
 	public void finishingAttribute(AttributeDefinition attributeDefinition);
 
-	public void foundAny(AssociationAttributeDefinition attributeDefinition, AnyMappingDefinition anyDefinition);
+	public void foundAny(AnyMappingDefinition anyDefinition);
 
 	public void associationKeyRegistered(AssociationKey associationKey);
 	public FetchSource registeredFetchSource(AssociationKey associationKey);
