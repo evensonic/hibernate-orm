@@ -34,9 +34,6 @@ import org.hibernate.cfg.Environment;
 import org.hibernate.testing.junit4.BaseCoreFunctionalTestCase;
 import org.junit.Test;
 
-/**
- * @author Gavin King
- */
 public class ManyToManyUniqueDelOrphanTest extends BaseCoreFunctionalTestCase {
 	@Override
 	public String[] getMappings() {
